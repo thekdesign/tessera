@@ -6,6 +6,7 @@ import {useToast} from '../composables/useToast.js';
 import {EXPORT_SIZES, exportCollage, exportDimensions, exportFileName} from '../lib/exporter.js';
 import RangeField from './ui/RangeField.vue';
 import SectionTitle from './ui/SectionTitle.vue';
+import SegmentedControl from './ui/SegmentedControl.vue';
 
 const emit = defineEmits(['close']);
 const store = useCollageStore();
@@ -14,7 +15,10 @@ const {toast} = useToast();
 const format = ref('jpg');
 const edge = ref(2048);
 const quality = ref(92);
-const busy = ref(false);
+// idle → busy → done；done 時按鈕轉成打勾，停留片刻再關閉
+const phase = ref('idle');
+const busy = computed(() => phase.value !== 'idle');
+const doneLabel = ref('');
 const dialog = ref();
 
 const emptyCount = computed(() => store.doc.cells.filter((c) => !c.photoId).length);
@@ -33,7 +37,7 @@ async function produce() {
 
 async function run(action) {
     if (busy.value) return;
-    busy.value = true;
+    phase.value = 'busy';
     try {
         const file = await produce();
         if (action === 'share' && navigator.canShare?.({files: [file]})) {
@@ -41,8 +45,10 @@ async function run(action) {
                 await navigator.share({files: [file], title: 'Tessera 組圖'});
             } catch (err) {
                 if (err?.name !== 'AbortError') throw err;
+                phase.value = 'idle';
                 return;
             }
+            doneLabel.value = '已分享';
         } else {
             const url = URL.createObjectURL(file);
             const a = document.createElement('a');
@@ -50,13 +56,14 @@ async function run(action) {
             a.download = file.name;
             a.click();
             setTimeout(() => URL.revokeObjectURL(url), 10_000);
+            doneLabel.value = '已下載';
             toast(`已下載 ${file.name}`);
         }
-        emit('close');
+        phase.value = 'done';
+        setTimeout(() => emit('close'), 900);
     } catch {
+        phase.value = 'idle';
         toast('匯出失敗，試試看較小的尺寸', {tone: 'error'});
-    } finally {
-        busy.value = false;
     }
 }
 </script>
@@ -69,7 +76,7 @@ async function run(action) {
             role="dialog"
             aria-modal="true"
             aria-labelledby="export-title"
-            class="anim-sheet pb-safe w-full max-w-md rounded-t-2xl bg-surface shadow-sheet outline-none sm:rounded-2xl"
+            class="modal-sheet pb-safe w-full max-w-md rounded-t-2xl bg-surface shadow-sheet outline-none sm:rounded-2xl"
             @keydown.esc="emit('close')"
         >
             <header class="flex items-center justify-between px-5 pt-5">
@@ -103,17 +110,7 @@ async function run(action) {
 
                 <section>
                     <SectionTitle>格式</SectionTitle>
-                    <div class="grid grid-cols-2 rounded-lg bg-desk p-1 text-[13px] font-medium">
-                        <button
-                            v-for="f in [{id: 'jpg', label: 'JPG・檔案小'}, {id: 'png', label: 'PNG・無損'}]"
-                            :key="f.id"
-                            type="button"
-                            class="rounded-md py-1.5 transition-colors"
-                            :class="format === f.id ? 'bg-surface text-ink shadow-sm' : 'text-ink-3 hover:text-ink-2'"
-                            :aria-pressed="String(format === f.id)"
-                            @click="format = f.id"
-                        >{{ f.label }}</button>
-                    </div>
+                    <SegmentedControl v-model="format" :options="[{id: 'jpg', label: 'JPG・檔案小'}, {id: 'png', label: 'PNG・無損'}]" />
                 </section>
 
                 <RangeField v-if="format === 'jpg'" v-model="quality" label="JPG 品質" :min="60" :max="100" />
@@ -135,13 +132,23 @@ async function run(action) {
                 </button>
                 <button
                     type="button"
-                    class="flex flex-[2] items-center justify-center gap-2 rounded-xl bg-accent py-3 font-semibold text-white transition-colors hover:bg-accent-strong disabled:opacity-60"
+                    class="flex flex-[2] items-center justify-center rounded-xl py-3 font-semibold text-white transition-colors duration-300"
+                    :class="phase === 'done' ? 'bg-[#18A76B]' : 'bg-accent hover:bg-accent-strong'"
                     :disabled="busy"
                     @click="run('download')"
                 >
-                    <PhSpinnerGap v-if="busy" :size="18" class="animate-spin" />
-                    <PhDownloadSimple v-else :size="18" />
-                    {{ busy ? '處理中…' : '下載圖片' }}
+                    <Transition name="swap" mode="out-in">
+                        <span :key="phase" class="flex items-center gap-2">
+                            <template v-if="phase === 'busy'"><PhSpinnerGap :size="18" class="animate-spin" />處理中…</template>
+                            <template v-else-if="phase === 'done'">
+                                <svg viewBox="0 0 24 24" class="size-[18px]" aria-hidden="true">
+                                    <path d="M5 12.5l4.5 4.5L19 7.5" class="check-draw" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+                                </svg>
+                                {{ doneLabel }}
+                            </template>
+                            <template v-else><PhDownloadSimple :size="18" />下載圖片</template>
+                        </span>
+                    </Transition>
                 </button>
             </footer>
         </div>

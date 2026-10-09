@@ -6,6 +6,7 @@ import {ensureFontStylesheet, FONTS, fontStack} from '../../lib/fonts.js';
 import {STICKER_SETS, TEXT_COLORS, TEXT_STYLES} from '../../lib/overlays.js';
 import RangeField from '../ui/RangeField.vue';
 import SectionTitle from '../ui/SectionTitle.vue';
+import SegmentedControl from '../ui/SegmentedControl.vue';
 
 const store = useCollageStore();
 const mode = ref('text');
@@ -39,18 +40,7 @@ function addSticker(emoji) {
 
 <template>
     <div class="space-y-5">
-        <div class="grid grid-cols-2 rounded-lg bg-desk p-1 text-[13px] font-medium" role="tablist">
-            <button
-                v-for="t in [{id: 'text', label: '文字'}, {id: 'sticker', label: '貼圖'}]"
-                :key="t.id"
-                type="button"
-                role="tab"
-                class="rounded-md py-1.5 transition-colors"
-                :class="mode === t.id ? 'bg-surface text-ink shadow-sm' : 'text-ink-3 hover:text-ink-2'"
-                :aria-selected="String(mode === t.id)"
-                @click="mode = t.id"
-            >{{ t.label }}</button>
-        </div>
+        <SegmentedControl v-model="mode" role="tablist" :options="[{id: 'text', label: '文字'}, {id: 'sticker', label: '貼圖'}]" />
 
         <!-- 文字 -->
         <template v-if="mode === 'text'">

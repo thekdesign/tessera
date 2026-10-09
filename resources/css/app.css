@@ -163,6 +163,21 @@
         }
     }
 
+    /* 照片解碼中的微光佔位 */
+    .skeleton {
+        overflow: hidden;
+        background: color-mix(in srgb, currentColor 8%, transparent);
+    }
+
+    .skeleton::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(100deg, transparent 20%, rgb(255 255 255 / 0.55) 50%, transparent 80%);
+        transform: translateX(-100%);
+        animation: shimmer 1.2s ease-in-out infinite;
+    }
+
     .scrollbar-none {
         scrollbar-width: none;
     }
@@ -175,7 +190,13 @@
         padding-bottom: env(safe-area-inset-bottom);
     }
 
-    @keyframes sheet-in {
+    @keyframes shimmer {
+    to {
+        transform: translateX(100%);
+    }
+}
+
+@keyframes sheet-in {
         from {
             opacity: 0;
             transform: translateY(8px) scale(0.98);
@@ -195,6 +216,123 @@
 
     .anim-stage {
         animation: stage-in 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+}
+
+/*
+ * Vue <Transition> 用的過場（不放進 layer，才能蓋過 utilities 的尺寸設定）
+ * 參考 transitions.dev 的 Toast / Modal / Panel reveal / Icon swap / Success check。
+ */
+
+.toast-enter-active {
+    transition: opacity 240ms ease-out, transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1), filter 240ms ease-out;
+}
+
+.toast-leave-active {
+    transition: opacity 160ms ease-in, transform 160ms ease-in, filter 160ms ease-in;
+}
+
+.toast-move {
+    transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.toast-enter-from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.96);
+    filter: blur(4px);
+}
+
+.toast-leave-to {
+    opacity: 0;
+    transform: scale(0.96);
+    filter: blur(4px);
+}
+
+.modal-enter-active,
+.modal-leave-active {
+    transition: opacity 220ms ease;
+}
+
+.modal-enter-active .modal-sheet {
+    transition: transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 200ms ease-out;
+}
+
+.modal-leave-active .modal-sheet {
+    transition: transform 180ms ease-in, opacity 160ms ease-in;
+}
+
+.modal-enter-from,
+.modal-leave-to {
+    opacity: 0;
+}
+
+.modal-enter-from .modal-sheet,
+.modal-leave-to .modal-sheet {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+}
+
+/* 手機上匯出視窗是底部抽屜，整片從下方滑入 */
+@media (max-width: 639px) {
+    .modal-enter-from .modal-sheet,
+    .modal-leave-to .modal-sheet {
+        opacity: 1;
+        transform: translateY(100%);
+    }
+}
+
+.panel-enter-active {
+    transition: opacity 180ms ease-out, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.panel-leave-active {
+    transition: opacity 90ms ease-in;
+}
+
+.panel-enter-from {
+    opacity: 0;
+    transform: translateY(6px);
+}
+
+.panel-leave-to {
+    opacity: 0;
+}
+
+/* 手機上收合 / 展開工具面板 */
+@media (max-width: 1023px) {
+    .drawer-enter-active,
+    .drawer-leave-active {
+        transition: height 280ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 200ms ease;
+    }
+
+    .drawer-enter-from,
+    .drawer-leave-to {
+        height: 0;
+        opacity: 0;
+    }
+}
+
+.swap-enter-active,
+.swap-leave-active {
+    transition: opacity 140ms ease, transform 160ms ease, filter 140ms ease;
+}
+
+.swap-enter-from,
+.swap-leave-to {
+    opacity: 0;
+    transform: scale(0.9);
+    filter: blur(3px);
+}
+
+.check-draw {
+    stroke-dasharray: 24;
+    stroke-dashoffset: 24;
+    animation: check-draw 360ms 80ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+@keyframes check-draw {
+    to {
+        stroke-dashoffset: 0;
     }
 }
 

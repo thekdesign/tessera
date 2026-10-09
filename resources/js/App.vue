@@ -24,6 +24,12 @@ const {toast} = useToast();
 const exporting = ref(false);
 
 const tool = computed(() => TOOLS.find((t) => t.id === store.activeTool));
+const panelScroll = ref();
+
+// 換工具時面板捲回頂端
+watch(() => store.activeTool, () => {
+    if (panelScroll.value) panelScroll.value.scrollTop = 0;
+});
 
 // 點到畫布上的文字或貼圖時，自動打開對應面板
 watch(() => store.selection, (sel) => {
@@ -117,23 +123,29 @@ onBeforeUnmount(() => {
         <div class="flex min-h-0 flex-1 flex-col lg:flex-row">
             <Stage class="order-1 lg:order-3" />
 
-            <aside
-                v-if="tool"
-                class="order-2 flex shrink-0 flex-col border-line bg-surface max-lg:h-[min(42vh,380px)] max-lg:border-t lg:w-[320px] lg:border-r"
-                :aria-label="tool.title"
-            >
-                <h2 class="hidden h-12 shrink-0 items-center border-b border-line px-4 text-sm font-semibold lg:flex">
-                    {{ tool.title }}
-                </h2>
-                <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
-                    <component :is="PANELS[tool.id]" />
-                </div>
-            </aside>
+            <Transition name="drawer">
+                <aside
+                    v-if="tool"
+                    class="order-2 flex shrink-0 flex-col overflow-hidden border-line bg-surface max-lg:h-[min(42vh,380px)] max-lg:border-t lg:w-[320px] lg:border-r"
+                    :aria-label="tool.title"
+                >
+                    <h2 class="hidden h-12 shrink-0 items-center border-b border-line px-4 text-sm font-semibold lg:flex">
+                        {{ tool.title }}
+                    </h2>
+                    <div ref="panelScroll" class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
+                        <Transition name="panel" mode="out-in">
+                            <component :is="PANELS[tool.id]" :key="tool.id" />
+                        </Transition>
+                    </div>
+                </aside>
+            </Transition>
 
             <ToolNav class="order-3 lg:order-1" />
         </div>
 
-        <ExportDialog v-if="exporting" @close="exporting = false" />
+        <Transition name="modal">
+            <ExportDialog v-if="exporting" @close="exporting = false" />
+        </Transition>
         <ToastHost />
     </div>
 </template>
