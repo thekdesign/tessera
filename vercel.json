@@ -1,0 +1,12 @@
+{
+    "buildCommand": "npm run production",
+    "outputDirectory": "dist",
+    "framework": null,
+    "cleanUrls": true,
+    "headers": [
+        {
+            "source": "/sw.js",
+            "headers": [{"key": "Cache-Control", "value": "no-cache"}]
+        }
+    ]
+}

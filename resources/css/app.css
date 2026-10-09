@@ -1,0 +1,208 @@
+/*
+ * Tailwind 4 entry — CSS-first，沒有 tailwind.config。
+ * 沿用 project-common 約定：只載 theme + utilities，不載 preflight；reset 由 reset-css 負責。
+ *
+ * 主題：明亮俐落的工作檯。冷白檯面 × 切割墊點陣 × 單一鈷藍重點色。
+ * 照片是主角，介面只用中性灰階退到後面。
+ */
+
+/* 宣告 layer 順序：reset 與基礎樣式放進 base，才不會蓋掉 utilities */
+@layer theme, base, components, utilities;
+
+@import 'reset-css/reset.css' layer(base);
+
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+@theme {
+    --color-desk: #f4f5f7;
+    --color-surface: #ffffff;
+    --color-line: #e4e6ea;
+    --color-line-strong: #cfd3da;
+    --color-mat: #d6d9df;
+
+    --color-ink: #111318;
+    --color-ink-2: #4b505c;
+    --color-ink-3: #868b96;
+
+    --color-accent: #2e55ff;
+    --color-accent-strong: #1d3fe0;
+    --color-accent-soft: #eaeeff;
+    --color-danger: #e5484d;
+
+    --font-sans: 'Instrument Sans', 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', system-ui, sans-serif;
+
+    --shadow-float: 0 1px 2px rgb(17 19 24 / 0.06), 0 8px 24px rgb(17 19 24 / 0.1);
+    --shadow-sheet: 0 1px 2px rgb(17 19 24 / 0.05), 0 18px 48px rgb(17 19 24 / 0.12);
+}
+
+@layer base {
+    *,
+    ::before,
+    ::after {
+        box-sizing: border-box;
+    }
+
+    html,
+    body,
+    #app {
+        height: 100%;
+    }
+
+    body {
+        background: var(--color-desk);
+        color: var(--color-ink);
+        font-family: var(--font-sans);
+        font-size: 14px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        -webkit-tap-highlight-color: transparent;
+        overscroll-behavior: none;
+    }
+
+    button {
+        font: inherit;
+        color: inherit;
+        background: none;
+        border: 0;
+        cursor: pointer;
+    }
+
+    button:disabled {
+        cursor: not-allowed;
+    }
+
+    input,
+    textarea {
+        font: inherit;
+        color: inherit;
+    }
+
+    :focus-visible {
+        outline: 2px solid var(--color-accent);
+        outline-offset: 2px;
+    }
+}
+
+@layer components {
+    /* 舞台：切割墊點陣 */
+    .mat {
+        background-color: var(--color-desk);
+        background-image: radial-gradient(var(--color-mat) 1px, transparent 1.2px);
+        background-size: 18px 18px;
+    }
+
+    /* 滑桿 */
+    .range {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 100%;
+        height: 24px;
+        background: transparent;
+        cursor: pointer;
+        touch-action: pan-y;
+    }
+
+    .range::-webkit-slider-runnable-track {
+        height: 4px;
+        border-radius: 2px;
+        background: linear-gradient(to right, var(--color-accent) var(--fill, 0%), var(--color-line) var(--fill, 0%));
+    }
+
+    .range::-moz-range-track {
+        height: 4px;
+        border-radius: 2px;
+        background: var(--color-line);
+    }
+
+    .range::-moz-range-progress {
+        height: 4px;
+        border-radius: 2px;
+        background: var(--color-accent);
+    }
+
+    .range::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 18px;
+        height: 18px;
+        margin-top: -7px;
+        border-radius: 50%;
+        background: var(--color-surface);
+        border: 1.5px solid var(--color-accent);
+        box-shadow: 0 1px 3px rgb(17 19 24 / 0.2);
+        transition: transform 120ms ease-out;
+    }
+
+    .range::-moz-range-thumb {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: var(--color-surface);
+        border: 1.5px solid var(--color-accent);
+        box-shadow: 0 1px 3px rgb(17 19 24 / 0.2);
+    }
+
+    .range:active::-webkit-slider-thumb {
+        transform: scale(1.15);
+    }
+
+    /* 分隔線把手：滑鼠移到舞台上才出現，觸控裝置常駐 */
+    .divider-pill {
+        opacity: 0;
+        transition: opacity 150ms ease-out;
+    }
+
+    .stage:hover .divider-pill,
+    .divider-hit:active .divider-pill {
+        opacity: 1;
+    }
+
+    @media (hover: none) {
+        .divider-pill {
+            opacity: 0.9;
+        }
+    }
+
+    .scrollbar-none {
+        scrollbar-width: none;
+    }
+
+    .scrollbar-none::-webkit-scrollbar {
+        display: none;
+    }
+
+    .pb-safe {
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    @keyframes sheet-in {
+        from {
+            opacity: 0;
+            transform: translateY(8px) scale(0.98);
+        }
+    }
+
+    @keyframes stage-in {
+        from {
+            opacity: 0;
+            transform: scale(0.985);
+        }
+    }
+
+    .anim-sheet {
+        animation: sheet-in 180ms ease-out;
+    }
+
+    .anim-stage {
+        animation: stage-in 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 1ms !important;
+        transition-duration: 1ms !important;
+    }
+}

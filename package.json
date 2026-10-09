@@ -1,0 +1,32 @@
+{
+    "name": "tessera",
+    "private": true,
+    "version": "0.1.0",
+    "description": "Tessera 組圖：把多張照片拼成一張圖的純前端工具（照片只在本機處理）",
+    "type": "module",
+    "scripts": {
+        "serve": "vite",
+        "production": "vite build",
+        "preview": "vite preview",
+        "test": "vitest run"
+    },
+    "license": "ISC",
+    "engines": {
+        "node": ">=22"
+    },
+    "dependencies": {
+        "@phosphor-icons/vue": "^2.2.1",
+        "idb-keyval": "^6.3.0",
+        "pinia": "^4.0.3",
+        "reset-css": "^5.0.2",
+        "vue": "^3.5.43"
+    },
+    "devDependencies": {
+        "@tailwindcss/vite": "^4.3.3",
+        "@vitejs/plugin-vue": "^6.0.9",
+        "tailwindcss": "^4.3.3",
+        "vite": "^8.3.3",
+        "vite-plugin-pwa": "^2.0.0",
+        "vitest": "^5.0.3"
+    }
+}
