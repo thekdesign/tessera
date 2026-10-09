@@ -1,5 +1,6 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue';
+import {PhCaretDown} from '@phosphor-icons/vue';
 import {useCollageStore} from './stores/collage.js';
 import {useImport} from './composables/useImport.js';
 import {useToast} from './composables/useToast.js';
@@ -132,6 +133,19 @@ onBeforeUnmount(() => {
                     <h2 class="hidden h-12 shrink-0 items-center border-b border-line px-4 text-sm font-semibold lg:flex">
                         {{ tool.title }}
                     </h2>
+                    <!-- 手機：明確的收起按鈕，不必知道「再點一次分頁」也能回到只看圖片 -->
+                    <div class="flex h-11 shrink-0 items-center justify-between border-b border-line pr-1.5 pl-4 lg:hidden">
+                        <h2 class="text-[13px] font-semibold">{{ tool.title }}</h2>
+                        <button
+                            type="button"
+                            class="flex h-9 items-center gap-1 rounded-lg px-2.5 text-[13px] font-medium text-ink-2 transition-colors hover:bg-desk"
+                            aria-label="收起面板，只看圖片"
+                            @click="store.activeTool = undefined"
+                        >
+                            <PhCaretDown :size="16" weight="bold" />
+                            收起
+                        </button>
+                    </div>
                     <div ref="panelScroll" class="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
                         <Transition name="panel" mode="out-in">
                             <component :is="PANELS[tool.id]" :key="tool.id" />
