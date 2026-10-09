@@ -64,8 +64,11 @@ function makeThumb(canvas) {
     return c.toDataURL('image/jpeg', 0.8);
 }
 
-/** 讀入使用者選的檔案；回傳 {photos, failed} */
-export async function importFiles(files) {
+/**
+ * 讀入使用者選的檔案；逐張解碼，每完成一張就呼叫 onPhoto，
+ * 讓畫面可以一張一張出現，不必等全部解碼完。回傳 {photos, failed}
+ */
+export async function importFiles(files, onPhoto = () => {}) {
     const photos = [];
     let failed = 0;
     for (const file of files) {
@@ -77,6 +80,7 @@ export async function importFiles(files) {
             const id = newId();
             const meta = await registerBlob(id, file, file.name || '貼上的圖片');
             photos.push(meta);
+            onPhoto(meta);
             set(`photo:${id}`, {blob: file, name: meta.name}).catch(() => {});
         } catch {
             failed++;

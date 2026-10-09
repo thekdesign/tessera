@@ -10,6 +10,7 @@ import {renderCollage} from '../lib/render.js';
 import {photoSize, photoThumb, previewSource} from '../lib/photos.js';
 import {contrastOn} from '../lib/overlays.js';
 import {requestOverlayFonts} from '../lib/fonts.js';
+import {animate, easeOutQuart, lerp, lerpRect, reducedMotion} from '../lib/motion.js';
 import CellToolbar from './CellToolbar.vue';
 import OverlayBox from './OverlayBox.vue';
 
@@ -29,14 +30,89 @@ const dragOverIndex = ref(-1);
 const swap = ref(undefined);
 const gesturing = ref(false);
 
+/* ---------- 動態：換比例時對長寬比補間，舞台自然跟著變形 ---------- */
+
+const aspectView = ref({w: store.aspect.w, h: store.aspect.h});
+let cancelAspect;
+
+// sync：草稿還原時 ready 仍為 false，要在當下判斷才不會播動畫
+watch(() => store.doc.aspect, () => {
+    const to = store.aspect;
+    cancelAspect?.();
+    if (!store.ready || reducedMotion()) {
+        aspectView.value = {w: to.w, h: to.h};
+        return;
+    }
+    const r0 = aspectView.value.w / aspectView.value.h;
+    const r1 = to.w / to.h;
+    cancelAspect = animate(340, (e) => {
+        aspectView.value = {w: lerp(r0, r1, e), h: 1};
+    });
+}, {flush: 'sync'});
+
 const size = computed(() => {
-    const {w: aw, h: ah} = store.aspect;
+    const {w: aw, h: ah} = aspectView.value;
     const k = Math.min(avail.value.w / aw, avail.value.h / ah);
     if (!Number.isFinite(k) || k <= 0) return {w: 0, h: 0};
     return {w: Math.floor(aw * k), h: Math.floor(ah * k)};
 });
 
 const geo = computed(() => computeLayout(store.doc.tree, size.value.w, size.value.h, store.doc));
+
+/* ---------- 動態：換版型時，格子從上一次畫面的位置形變過去 ---------- */
+
+const morphFrom = ref(undefined);
+const morphT = ref(1);
+let lastCells = [];
+let cancelMorph;
+
+watch(() => store.morphTick, () => {
+    if (!store.ready || reducedMotion() || !lastCells.length) return;
+    cancelMorph?.();
+    morphFrom.value = lastCells.map((r) => ({...r}));
+    morphT.value = 0;
+    cancelMorph = animate(320, (e) => {
+        morphT.value = e;
+    }, () => {
+        morphFrom.value = undefined;
+    });
+}, {flush: 'sync'});
+
+// 實際顯示的格子位置：形變中為補間值；新多出的格子從自己的中心長出來
+const cells = computed(() => {
+    const to = geo.value.cells;
+    const from = morphFrom.value;
+    if (!from) return to;
+    return to.map((r, i) => lerpRect(from[i] || {x: r.x + r.w / 2, y: r.y + r.h / 2, w: 0, h: 0}, r, morphT.value));
+});
+const morphing = computed(() => Boolean(morphFrom.value));
+
+/* ---------- 動態：照片放進格子時淡入並微微收焦 ---------- */
+
+const APPEAR_MS = 420;
+const appearing = new Map(); // 格子 index -> 開始時間
+
+watch(() => store.doc.cells.map((c) => c.photoId), (next, prev) => {
+    if (!store.ready || reducedMotion() || !prev) return;
+    const now = performance.now();
+    next.forEach((id, i) => {
+        if (id && id !== prev[i]) appearing.set(i, now);
+    });
+    scheduleDraw();
+});
+
+function cellFx(index) {
+    const start = appearing.get(index);
+    if (start === undefined) return undefined;
+    const t = (performance.now() - start) / APPEAR_MS;
+    if (t >= 1) {
+        appearing.delete(index);
+        return undefined;
+    }
+    const e = easeOutQuart(Math.max(0, t));
+    // 由 1.08 收到 1：只放大不縮小，格子邊緣不會露底
+    return {alpha: e, scale: 1 + 0.08 * (1 - e)};
+}
 const radiusPx = computed(() => store.doc.radius * unitOf(size.value.w, size.value.h));
 const placeholderInk = computed(() => contrastOn(store.doc.background));
 
@@ -72,13 +148,17 @@ function draw() {
     requestOverlayFonts(store.doc.overlays, onFontsLoaded);
     const ctx = el.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    lastCells = cells.value;
     renderCollage(ctx, w, h, store.doc, {
         photoSize,
+        rects: lastCells,
+        cellFx,
         getSource: (cell) => previewSource(cell.photoId, resolveParams(cell.filter, cell.adjust)),
     });
+    if (appearing.size) scheduleDraw();
 }
 
-watch(() => [store.doc, size.value, store.photos.length], scheduleDraw, {deep: true});
+watch(() => [store.doc, size.value, cells.value, store.photos.length], scheduleDraw, {deep: true});
 
 function onFontsLoaded() {
     fontTick.value++;
@@ -100,6 +180,8 @@ onBeforeUnmount(() => {
     observer?.disconnect();
     document.fonts?.removeEventListener('loadingdone', onFontsLoaded);
     cancelAnimationFrame(raf);
+    cancelAspect?.();
+    cancelMorph?.();
 });
 
 /* ---------- 座標 ---------- */
@@ -141,7 +223,7 @@ function onCellMove(e) {
     pointers.set(e.pointerId, p);
     const {index} = gesture;
     const cell = store.doc.cells[index];
-    const rect = geo.value.cells[index];
+    const rect = cells.value[index];
     if (!cell || !rect) return;
 
     if (gesture.mode === 'pinch') {
@@ -158,11 +240,11 @@ function onCellMove(e) {
     if (dist(p, gesture.start) > 3) gesturing.value = true;
 
     // 拖出原本的格子 → 改成交換模式
-    if (gesture.mode === 'pan' && !pointInRect(p.x, p.y, inflate(rect, 12)) && geo.value.cells.length > 1) {
+    if (gesture.mode === 'pan' && !pointInRect(p.x, p.y, inflate(rect, 12)) && cells.value.length > 1) {
         gesture.mode = 'swap';
     }
     if (gesture.mode === 'swap') {
-        const to = geo.value.cells.findIndex((r) => pointInRect(p.x, p.y, r));
+        const to = cells.value.findIndex((r) => pointInRect(p.x, p.y, r));
         swap.value = {from: index, to, x: p.x, y: p.y, thumb: photoThumb(cell.photoId)};
         return;
     }
@@ -281,11 +363,11 @@ function replace(index) {
             :style="{width: `${size.w}px`, height: `${size.h}px`}"
             @pointerdown.self="store.clearSelection()"
         >
-            <canvas ref="canvas" class="block size-full" :aria-label="`組圖預覽，共 ${geo.cells.length} 格`" role="img" />
+            <canvas ref="canvas" class="block size-full" :aria-label="`組圖預覽，共 ${cells.length} 格`" role="img" />
 
             <!-- 格子命中區 -->
             <div
-                v-for="(rect, i) in geo.cells"
+                v-for="(rect, i) in cells"
                 :key="`c${i}`"
                 class="absolute touch-none select-none"
                 :class="store.doc.cells[i]?.photoId ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'"
@@ -312,7 +394,13 @@ function replace(index) {
                         backgroundColor: dragOverIndex === i ? undefined : `${placeholderInk}0d`,
                     }"
                 >
-                    <span class="flex flex-col items-center gap-1.5 opacity-70" :class="dragOverIndex === i && 'text-accent opacity-100'">
+                    <span
+                        v-if="store.loadingCells.has(i)"
+                        class="skeleton absolute inset-0"
+                        :style="{borderRadius: `${Math.min(radiusPx, rect.w / 2, rect.h / 2)}px`}"
+                        aria-label="照片載入中"
+                    />
+                    <span v-else class="flex flex-col items-center gap-1.5 opacity-70" :class="dragOverIndex === i && 'text-accent opacity-100'">
                         <span class="grid size-9 place-items-center rounded-full bg-current/10">
                             <PhPlus :size="18" weight="bold" />
                         </span>
@@ -328,14 +416,14 @@ function replace(index) {
 
             <!-- 選取框 / 交換目標 -->
             <div
-                v-if="selectedIndex >= 0 && geo.cells[selectedIndex] && !swap"
+                v-if="selectedIndex >= 0 && cells[selectedIndex] && !swap"
                 class="pointer-events-none absolute outline-2 outline-offset-1 outline-accent"
                 :style="{
-                    left: `${geo.cells[selectedIndex].x}px`,
-                    top: `${geo.cells[selectedIndex].y}px`,
-                    width: `${geo.cells[selectedIndex].w}px`,
-                    height: `${geo.cells[selectedIndex].h}px`,
-                    borderRadius: `${Math.min(radiusPx, geo.cells[selectedIndex].w / 2, geo.cells[selectedIndex].h / 2)}px`,
+                    left: `${cells[selectedIndex].x}px`,
+                    top: `${cells[selectedIndex].y}px`,
+                    width: `${cells[selectedIndex].w}px`,
+                    height: `${cells[selectedIndex].h}px`,
+                    borderRadius: `${Math.min(radiusPx, cells[selectedIndex].w / 2, cells[selectedIndex].h / 2)}px`,
                     outlineStyle: 'solid',
                 }"
             />
@@ -344,10 +432,10 @@ function replace(index) {
                     v-if="swap.to >= 0 && swap.to !== swap.from"
                     class="pointer-events-none absolute border-2 border-accent bg-accent/20"
                     :style="{
-                        left: `${geo.cells[swap.to].x}px`,
-                        top: `${geo.cells[swap.to].y}px`,
-                        width: `${geo.cells[swap.to].w}px`,
-                        height: `${geo.cells[swap.to].h}px`,
+                        left: `${cells[swap.to].x}px`,
+                        top: `${cells[swap.to].y}px`,
+                        width: `${cells[swap.to].w}px`,
+                        height: `${cells[swap.to].h}px`,
                     }"
                 />
                 <img
@@ -361,7 +449,7 @@ function replace(index) {
 
             <!-- 分隔線把手 -->
             <div
-                v-for="d in geo.dividers"
+                v-for="d in (morphing ? [] : geo.dividers)"
                 :key="`d${d.path.join('-')}-${d.index}`"
                 class="divider-hit absolute z-10 grid touch-none place-items-center"
                 :class="d.dir === 'row' ? 'cursor-col-resize' : 'cursor-row-resize'"
@@ -397,7 +485,7 @@ function replace(index) {
             <CellToolbar
                 v-if="showToolbar"
                 :index="selectedIndex"
-                :rect="geo.cells[selectedIndex]"
+                :rect="cells[selectedIndex]"
                 :stage-w="size.w"
                 @replace="replace"
             />

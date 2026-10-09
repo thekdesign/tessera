@@ -68,6 +68,10 @@ export const useCollageStore = defineStore('collage', () => {
     const activeTool = ref('layout');
     const editingOverlayId = ref(undefined);
     const ready = ref(false);
+    // 結構性變動（換版型、還原比例、復原重做）時 +1，舞台據此播放形變動畫
+    const morphTick = ref(0);
+    // 正在等照片解碼的格子
+    const loadingCells = ref(new Set());
 
     const aspect = computed(() => ASPECTS.find((a) => a.id === doc.aspect) || ASPECTS[0]);
     const usedPhotoIds = computed(() => new Set(doc.cells.map((c) => c.photoId).filter(Boolean)));
@@ -94,6 +98,7 @@ export const useCollageStore = defineStore('collage', () => {
     }, 350);
 
     function restore(snap) {
+        morphTick.value++;
         Object.assign(doc, JSON.parse(snap));
         current = snap;
         if (selection.value.type === 'cell' && selection.value.index >= doc.cells.length) clearSelection();
@@ -155,14 +160,32 @@ export const useCollageStore = defineStore('collage', () => {
     }
 
     async function addFiles(files, targetIndex) {
-        const result = await importFiles([...files]);
-        if (!result.photos.length) return result;
-        photos.value.push(...result.photos);
-        if (targetIndex !== undefined && doc.cells[targetIndex]) {
-            doc.cells[targetIndex] = newCell(result.photos[0].id);
-            selection.value = {type: 'cell', index: targetIndex};
+        // 先預留要放照片的格子：指定的那格優先，其餘依序找空格
+        const targets = [];
+        if (targetIndex !== undefined && doc.cells[targetIndex]) targets.push(targetIndex);
+        doc.cells.forEach((cell, i) => {
+            if (!cell.photoId && i !== targetIndex && targets.length < files.length) targets.push(i);
+        });
+        targets.length = Math.min(targets.length, files.length);
+        loadingCells.value = new Set([...loadingCells.value, ...targets]);
+
+        const result = await importFiles([...files], (meta) => {
+            photos.value.push(meta);
+            const index = targets.shift();
+            if (index === undefined) return;
+            doc.cells[index] = newCell(meta.id);
+            const next = new Set(loadingCells.value);
+            next.delete(index);
+            loadingCells.value = next;
+            if (index === targetIndex) selection.value = {type: 'cell', index};
+        });
+
+        // 解碼失敗的格子要把佔位收掉
+        if (targets.length) {
+            const next = new Set(loadingCells.value);
+            targets.forEach((i) => next.delete(i));
+            loadingCells.value = next;
         }
-        autoFill();
         return result;
     }
 
@@ -214,6 +237,7 @@ export const useCollageStore = defineStore('collage', () => {
     function setLayout(id) {
         const layout = findLayout(id);
         if (!layout) return;
+        morphTick.value++;
         doc.layoutId = id;
         doc.tree = cloneTree(layout.tree);
         const n = countLeaves(doc.tree);
@@ -227,6 +251,7 @@ export const useCollageStore = defineStore('collage', () => {
     }
 
     function resetRatios() {
+        morphTick.value++;
         doc.tree = cloneTree(findLayout(doc.layoutId).tree);
     }
 
@@ -297,7 +322,7 @@ export const useCollageStore = defineStore('collage', () => {
     }
 
     return {
-        doc, photos, selection, activeTool, editingOverlayId, ready,
+        doc, photos, selection, activeTool, editingOverlayId, ready, morphTick, loadingCells,
         aspect, unusedPhotos, filledCount, selectedCell, selectedOverlay,
         canUndo, canRedo, undo, redo, init,
         addFiles, placePhoto, swapCells, clearCell, removePhoto, updateCell, applyToneToAll,
