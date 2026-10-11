@@ -23,6 +23,7 @@ function select(id) {
         ref="root"
         class="pb-safe relative flex shrink-0 border-line bg-surface max-lg:border-t lg:w-[76px] lg:flex-col lg:gap-1 lg:border-r lg:py-3"
         aria-label="工具"
+        data-tour="tools"
     >
         <span
             class="pointer-events-none absolute top-0 left-0 rounded-full bg-accent-soft transition-[transform,width,height,opacity] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] lg:rounded-xl"

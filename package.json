@@ -16,6 +16,7 @@
     },
     "dependencies": {
         "@phosphor-icons/vue": "^2.2.1",
+        "driver.js": "^1.8.0",
         "idb-keyval": "^6.3.0",
         "pinia": "^4.0.3",
         "reset-css": "^5.0.2",

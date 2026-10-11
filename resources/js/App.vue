@@ -4,13 +4,16 @@ import {PhCaretDown} from '@phosphor-icons/vue';
 import {useCollageStore} from './stores/collage.js';
 import {useImport} from './composables/useImport.js';
 import {useToast} from './composables/useToast.js';
+import {useTour} from './composables/useTour.js';
 import {ensureFontStylesheet} from './lib/fonts.js';
 import {TOOLS} from './lib/tools.js';
+import {reducedMotion} from './lib/motion.js';
 import TopBar from './components/TopBar.vue';
 import ToolNav from './components/ToolNav.vue';
 import Stage from './components/Stage.vue';
 import ToastHost from './components/ToastHost.vue';
 import ExportDialog from './components/ExportDialog.vue';
+import TourDialog from './components/TourDialog.vue';
 import PhotosPanel from './components/panels/PhotosPanel.vue';
 import LayoutPanel from './components/panels/LayoutPanel.vue';
 import FramePanel from './components/panels/FramePanel.vue';
@@ -23,6 +26,14 @@ const store = useCollageStore();
 const {addFiles} = useImport();
 const {toast} = useToast();
 const exporting = ref(false);
+const helping = ref(false);
+const tour = useTour();
+
+// 從章節清單開始導覽：等視窗收起的過場跑完，亮框才不會被半透明的視窗蓋住
+function startTour(chapterIds) {
+    helping.value = false;
+    setTimeout(() => tour.start(chapterIds), reducedMotion() ? 0 : 240);
+}
 
 const tool = computed(() => TOOLS.find((t) => t.id === store.activeTool));
 const panelScroll = ref();
@@ -67,7 +78,7 @@ function onDrop(e) {
 }
 
 function onKeydown(e) {
-    if (isTyping(e.target)) return;
+    if (isTyping(e.target) || tour.running.value) return;
     const mod = e.metaKey || e.ctrlKey;
     const key = e.key.toLowerCase();
 
@@ -81,7 +92,7 @@ function onKeydown(e) {
         store.redo();
         return;
     }
-    if (exporting.value) return;
+    if (exporting.value || helping.value) return;
 
     const sel = store.selection;
     if (e.key === 'Escape') {
@@ -107,6 +118,8 @@ onMounted(async () => {
     window.addEventListener('drop', onDrop);
     window.addEventListener('keydown', onKeydown);
     if (await store.init()) toast('已還原上次的作品');
+    // 第一次來：自動播「開始使用」，其他章節留在說明選單裡隨時看
+    if (!tour.seen.value.has('start')) setTimeout(() => tour.start(['start']), 600);
 });
 
 onBeforeUnmount(() => {
@@ -119,7 +132,7 @@ onBeforeUnmount(() => {
 
 <template>
     <div class="flex h-full flex-col">
-        <TopBar @export="exporting = true" @start-over="startOver" />
+        <TopBar @export="exporting = true" @start-over="startOver" @help="helping = true" />
 
         <div class="flex min-h-0 flex-1 flex-col lg:flex-row">
             <Stage class="order-1 lg:order-3" />
@@ -127,6 +140,7 @@ onBeforeUnmount(() => {
             <Transition name="drawer">
                 <aside
                     v-if="tool"
+                    data-tour="panel"
                     class="order-2 flex shrink-0 flex-col overflow-hidden border-line bg-surface max-lg:h-[min(42vh,380px)] max-lg:border-t lg:w-[320px] lg:border-r"
                     :aria-label="tool.title"
                 >
@@ -159,6 +173,9 @@ onBeforeUnmount(() => {
 
         <Transition name="modal">
             <ExportDialog v-if="exporting" @close="exporting = false" />
+        </Transition>
+        <Transition name="modal">
+            <TourDialog v-if="helping" @close="helping = false" @start="startTour" />
         </Transition>
         <ToastHost />
     </div>
