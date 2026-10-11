@@ -1,9 +1,10 @@
 <script setup>
-import {computed, onMounted, ref} from 'vue';
-import {PhDownloadSimple, PhShareNetwork, PhSpinnerGap, PhX} from '@phosphor-icons/vue';
+import {computed, onMounted, ref, watch} from 'vue';
+import {PhDownloadSimple, PhFolderSimple, PhImageSquare, PhShareNetwork, PhSpinnerGap, PhX} from '@phosphor-icons/vue';
 import {useCollageStore} from '../stores/collage.js';
 import {useToast} from '../composables/useToast.js';
 import {EXPORT_SIZES, exportCollage, exportDimensions, exportFileName} from '../lib/exporter.js';
+import {canShareFiles, isIOS} from '../lib/platform.js';
 import RangeField from './ui/RangeField.vue';
 import SectionTitle from './ui/SectionTitle.vue';
 import SegmentedControl from './ui/SegmentedControl.vue';
@@ -15,57 +16,106 @@ const {toast} = useToast();
 const format = ref('jpg');
 const edge = ref(2048);
 const quality = ref(92);
-// idle → busy → done；done 時按鈕轉成打勾，停留片刻再關閉
+// idle → busy → done；done 時按鈕轉成打勾，停留片刻再關閉。
+// ready：圖已做好但瀏覽器擋下分享（轉檔太久，點擊的授權過期），要使用者再點一次
 const phase = ref('idle');
-const busy = computed(() => phase.value !== 'idle');
+const running = ref(undefined); // 'share' | 'download'
+const busy = computed(() => phase.value === 'busy' || phase.value === 'done');
 const doneLabel = ref('');
 const dialog = ref();
 
 const emptyCount = computed(() => store.doc.cells.filter((c) => !c.photoId).length);
-const canShare = typeof navigator !== 'undefined' && Boolean(navigator.canShare);
+const canShare = canShareFiles();
+// 網頁沒辦法直接寫進 iPhone 的「照片」，要透過分享選單的「儲存影像」；
+// 直接下載只會進「檔案」App，所以在 iPhone 上把分享當成主要動作
+const toPhotos = isIOS && canShare;
+
+const actions = computed(() => {
+    const share = toPhotos
+        ? {id: 'share', label: '儲存到相片', icon: PhImageSquare}
+        : {id: 'share', label: '分享', icon: PhShareNetwork};
+    const download = toPhotos
+        ? {id: 'download', label: '存到檔案', icon: PhFolderSimple}
+        : {id: 'download', label: '下載圖片', icon: PhDownloadSimple};
+    if (!canShare) return {primary: download};
+    return toPhotos ? {primary: share, secondary: download} : {primary: download, secondary: share};
+});
 
 onMounted(() => dialog.value?.focus());
 
-async function produce() {
+/* ---------- 產生檔案：同樣的設定只轉一次，「再點一次」時可以立刻分享 ---------- */
+
+let prepared;
+const settingsKey = () => `${format.value}|${edge.value}|${quality.value}`;
+
+watch([format, edge, quality], () => {
+    prepared = undefined;
+    if (phase.value === 'ready') phase.value = 'idle';
+});
+
+async function getFile() {
+    const key = settingsKey();
+    if (prepared?.key === key) return prepared.file;
     const {blob} = await exportCollage(store.doc, store.aspect, {
         longEdge: edge.value,
         format: format.value,
         quality: quality.value / 100,
     });
-    return new File([blob], exportFileName(format.value), {type: blob.type});
+    const file = new File([blob], exportFileName(format.value), {type: blob.type});
+    prepared = {key, file};
+    return file;
+}
+
+function finish(label) {
+    doneLabel.value = label;
+    phase.value = 'done';
+    setTimeout(() => emit('close'), 900);
+}
+
+async function share() {
+    const file = await getFile();
+    try {
+        await navigator.share({files: [file], title: 'Tessera 組圖'});
+    } catch (err) {
+        // 使用者自己關掉分享選單
+        if (err?.name === 'AbortError') {
+            phase.value = 'idle';
+            return;
+        }
+        if (err?.name === 'NotAllowedError') {
+            phase.value = 'ready';
+            return;
+        }
+        throw err;
+    }
+    finish('完成');
+}
+
+async function download() {
+    const file = await getFile();
+    const url = URL.createObjectURL(file);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    toast(toPhotos ? `已存到「檔案」：${file.name}` : `已下載 ${file.name}`);
+    finish(toPhotos ? '已存檔' : '已下載');
 }
 
 async function run(action) {
     if (busy.value) return;
+    running.value = action;
     phase.value = 'busy';
     try {
-        const file = await produce();
-        if (action === 'share' && navigator.canShare?.({files: [file]})) {
-            try {
-                await navigator.share({files: [file], title: 'Tessera 組圖'});
-            } catch (err) {
-                if (err?.name !== 'AbortError') throw err;
-                phase.value = 'idle';
-                return;
-            }
-            doneLabel.value = '已分享';
-        } else {
-            const url = URL.createObjectURL(file);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = file.name;
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(url), 10_000);
-            doneLabel.value = '已下載';
-            toast(`已下載 ${file.name}`);
-        }
-        phase.value = 'done';
-        setTimeout(() => emit('close'), 900);
+        await (action === 'share' ? share() : download());
     } catch {
         phase.value = 'idle';
         toast('匯出失敗，試試看較小的尺寸', {tone: 'error'});
     }
 }
+
+const stateOf = (id) => (running.value === id ? phase.value : 'idle');
 </script>
 
 <template>
@@ -120,36 +170,56 @@ async function run(action) {
                 </p>
             </div>
 
-            <footer class="flex gap-2 px-5 pb-5">
-                <button
-                    v-if="canShare"
-                    type="button"
-                    class="flex flex-1 items-center justify-center gap-2 rounded-xl border border-line py-3 font-medium text-ink-2 transition-colors hover:bg-desk disabled:opacity-50"
-                    :disabled="busy"
-                    @click="run('share')"
-                >
-                    <PhShareNetwork :size="18" />分享
-                </button>
-                <button
-                    type="button"
-                    class="flex flex-[2] items-center justify-center rounded-xl py-3 font-semibold text-white transition-colors duration-300"
-                    :class="phase === 'done' ? 'bg-[#18A76B]' : 'bg-accent hover:bg-accent-strong'"
-                    :disabled="busy"
-                    @click="run('download')"
-                >
-                    <Transition name="swap" mode="out-in">
-                        <span :key="phase" class="flex items-center gap-2">
-                            <template v-if="phase === 'busy'"><PhSpinnerGap :size="18" class="animate-spin" />處理中…</template>
-                            <template v-else-if="phase === 'done'">
-                                <svg viewBox="0 0 24 24" class="size-[18px]" aria-hidden="true">
-                                    <path d="M5 12.5l4.5 4.5L19 7.5" class="check-draw" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
-                                </svg>
-                                {{ doneLabel }}
-                            </template>
-                            <template v-else><PhDownloadSimple :size="18" />下載圖片</template>
-                        </span>
-                    </Transition>
-                </button>
+            <footer class="px-5 pb-5">
+                <div class="flex gap-2">
+                    <button
+                        v-if="actions.secondary"
+                        type="button"
+                        class="flex flex-1 items-center justify-center gap-2 rounded-xl border border-line py-3 font-medium text-ink-2 transition-[background-color,transform] hover:bg-desk active:scale-[0.98] disabled:opacity-50"
+                        :disabled="busy"
+                        @click="run(actions.secondary.id)"
+                    >
+                        <Transition name="swap" mode="out-in">
+                            <span :key="stateOf(actions.secondary.id)" class="flex items-center gap-2">
+                                <template v-if="stateOf(actions.secondary.id) === 'busy'"><PhSpinnerGap :size="18" class="animate-spin" />處理中…</template>
+                                <template v-else-if="stateOf(actions.secondary.id) === 'done'">{{ doneLabel }}</template>
+                                <template v-else><component :is="actions.secondary.icon" :size="18" />{{ actions.secondary.label }}</template>
+                            </span>
+                        </Transition>
+                    </button>
+                    <button
+                        type="button"
+                        class="flex flex-[2] items-center justify-center rounded-xl py-3 font-semibold text-white transition-[background-color,transform] duration-300 active:scale-[0.98]"
+                        :class="stateOf(actions.primary.id) === 'done' ? 'bg-[#18A76B]' : 'bg-accent hover:bg-accent-strong'"
+                        :disabled="busy"
+                        @click="run(actions.primary.id)"
+                    >
+                        <Transition name="swap" mode="out-in">
+                            <span :key="stateOf(actions.primary.id)" class="flex items-center gap-2">
+                                <template v-if="stateOf(actions.primary.id) === 'busy'"><PhSpinnerGap :size="18" class="animate-spin" />處理中…</template>
+                                <template v-else-if="stateOf(actions.primary.id) === 'done'">
+                                    <svg viewBox="0 0 24 24" class="size-[18px]" aria-hidden="true">
+                                        <path d="M5 12.5l4.5 4.5L19 7.5" class="check-draw" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
+                                    </svg>
+                                    {{ doneLabel }}
+                                </template>
+                                <template v-else-if="stateOf(actions.primary.id) === 'ready'">
+                                    <component :is="actions.primary.icon" :size="18" />圖片好了，點我{{ actions.primary.label }}
+                                </template>
+                                <template v-else><component :is="actions.primary.icon" :size="18" />{{ actions.primary.label }}</template>
+                            </span>
+                        </Transition>
+                    </button>
+                </div>
+
+                <Transition name="fade" mode="out-in">
+                    <p v-if="phase === 'ready'" key="ready" class="mt-3 text-center text-xs text-ink-2" role="status">
+                        轉檔花了一點時間，瀏覽器需要你再點一次才能開啟分享選單。
+                    </p>
+                    <p v-else-if="toPhotos" key="hint" class="mt-3 text-center text-xs leading-relaxed text-ink-3">
+                        會打開分享選單，點選<b class="font-semibold text-ink-2">「儲存影像」</b>就會存進「照片」App。
+                    </p>
+                </Transition>
             </footer>
         </div>
     </div>
