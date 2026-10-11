@@ -163,6 +163,97 @@
         }
     }
 
+    /* 角度尺：中央長刻度為目前直角，每 5° 一格 */
+    .ruler-ticks {
+        background-image: linear-gradient(to right, var(--color-line-strong) 1px, transparent 1px);
+        background-size: calc((100% - 1px) / 18) 6px;
+        background-position: 0 50%;
+        background-repeat: repeat-x;
+    }
+
+    .ruler-ticks::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: calc(50% - 1px);
+        width: 2px;
+        border-radius: 1px;
+        background: var(--color-ink-3);
+    }
+
+    .ruler-input {
+        -webkit-appearance: none;
+        appearance: none;
+        margin: 0;
+        height: 24px;
+        background: transparent;
+        cursor: ew-resize;
+        touch-action: none;
+    }
+
+    .ruler-input::-webkit-slider-runnable-track {
+        height: 24px;
+        background: transparent;
+    }
+
+    .ruler-input::-moz-range-track {
+        height: 24px;
+        background: transparent;
+    }
+
+    .ruler-input::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 18px;
+        height: 18px;
+        margin-top: 3px;
+        border-radius: 50%;
+        background: var(--color-surface);
+        border: 1.5px solid var(--color-accent);
+        box-shadow: 0 1px 3px rgb(17 19 24 / 0.2);
+        transition: transform 120ms ease-out;
+    }
+
+    .ruler-input::-moz-range-thumb {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: var(--color-surface);
+        border: 1.5px solid var(--color-accent);
+        box-shadow: 0 1px 3px rgb(17 19 24 / 0.2);
+    }
+
+    .ruler-input:focus-visible {
+        outline-offset: 0;
+        border-radius: 6px;
+    }
+
+    .ruler-input:active::-webkit-slider-thumb {
+        transform: scale(1.15);
+    }
+
+    /* 工具列第二列展開：grid 0fr → 1fr，高度不必寫死 */
+    .ruler-reveal {
+        grid-template-rows: 0fr;
+        opacity: 0;
+        transition: grid-template-rows 240ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 160ms ease-out;
+    }
+
+    .ruler-reveal.is-open {
+        grid-template-rows: 1fr;
+        opacity: 1;
+    }
+
+    /* 旋轉時的三分格線，白線加一點陰影，亮暗照片上都看得到 */
+    .rotate-grid {
+        --line: rgb(255 255 255 / 0.75);
+        background-image:
+            linear-gradient(to right, transparent calc(100% / 3 - 0.5px), var(--line) calc(100% / 3 - 0.5px), var(--line) calc(100% / 3 + 0.5px), transparent calc(100% / 3 + 0.5px), transparent calc(200% / 3 - 0.5px), var(--line) calc(200% / 3 - 0.5px), var(--line) calc(200% / 3 + 0.5px), transparent calc(200% / 3 + 0.5px)),
+            linear-gradient(to bottom, transparent calc(100% / 3 - 0.5px), var(--line) calc(100% / 3 - 0.5px), var(--line) calc(100% / 3 + 0.5px), transparent calc(100% / 3 + 0.5px), transparent calc(200% / 3 - 0.5px), var(--line) calc(200% / 3 - 0.5px), var(--line) calc(200% / 3 + 0.5px), transparent calc(200% / 3 + 0.5px));
+        box-shadow: inset 0 0 0 1px var(--line);
+        filter: drop-shadow(0 0 1px rgb(17 19 24 / 0.45));
+    }
+
     /* 照片解碼中的微光佔位 */
     .skeleton {
         overflow: hidden;
@@ -322,6 +413,16 @@
     opacity: 0;
     transform: scale(0.9);
     filter: blur(3px);
+}
+
+.fade-enter-active,
+.fade-leave-active {
+    transition: opacity 160ms ease-out;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+    opacity: 0;
 }
 
 .check-draw {

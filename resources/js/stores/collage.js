@@ -67,6 +67,8 @@ export const useCollageStore = defineStore('collage', () => {
     const selection = ref({type: undefined});
     const activeTool = ref('layout');
     const editingOverlayId = ref(undefined);
+    // 格子工具列的角度尺是否展開（工具列在手勢中會暫時卸載，狀態放這裡才不會被重置）
+    const rotateRuler = ref(false);
     const ready = ref(false);
     // 結構性變動（換版型、還原比例、復原重做）時 +1，舞台據此播放形變動畫
     const morphTick = ref(0);
@@ -322,7 +324,7 @@ export const useCollageStore = defineStore('collage', () => {
     }
 
     return {
-        doc, photos, selection, activeTool, editingOverlayId, ready, morphTick, loadingCells,
+        doc, photos, selection, activeTool, editingOverlayId, rotateRuler, ready, morphTick, loadingCells,
         aspect, unusedPhotos, filledCount, selectedCell, selectedOverlay,
         canUndo, canRedo, undo, redo, init,
         addFiles, placePhoto, swapCells, clearCell, removePhoto, updateCell, applyToneToAll,

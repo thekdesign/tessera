@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest';
 import {LAYOUTS, countLeaves} from './layouts.js';
 import {computeLayout, shiftRatios, MIN_RATIO} from './geometry.js';
-import {computePlacement, panBy} from './placement.js';
+import {computePlacement, normalizeAngle, panBy, snapAngle} from './placement.js';
 import {applyToPixels, resolveParams, isIdentity} from './adjust.js';
 import {exportDimensions} from './exporter.js';
 
@@ -64,10 +64,57 @@ describe('placement', () => {
         expect(p.overflowY).toBe(0);
     });
 
-    it('旋轉 90° 時以轉後的長寬計算', () => {
+    it('旋轉 90° 時縮放不變，可移動範圍仍沿著照片的長邊', () => {
         const p = computePlacement(100, 100, 400, 200, {rotation: 90});
-        expect(p.overflowY).toBeCloseTo(50);
-        expect(p.overflowX).toBe(0);
+        expect(p.scale).toBeCloseTo(0.5);
+        expect(p.overflowX).toBeCloseTo(50);
+        expect(p.overflowY).toBeCloseTo(0);
+        // 照片的長邊轉成直的，pan 推到底時照片在畫面上往下移
+        const moved = computePlacement(100, 100, 400, 200, {rotation: 90, panX: 1});
+        expect(moved.offsetX).toBeCloseTo(0);
+        expect(moved.offsetY).toBeCloseTo(50);
+    });
+
+    it('任意角度、翻轉、平移到底時，格子四角仍落在照片內', () => {
+        const [cw, ch, iw, ih] = [120, 80, 300, 200];
+        for (const rotation of [7, 33, 45, 90, 128, -61, 179]) {
+            for (const [panX, panY] of [[1, 1], [-1, 1], [1, -1], [-1, -1], [0.3, -0.8]]) {
+                for (const flipH of [false, true]) {
+                    const cell = {zoom: 1.3, panX, panY, rotation, flipH, flipV: !flipH};
+                    const p = computePlacement(cw, ch, iw, ih, cell);
+                    const t = (rotation * Math.PI) / 180;
+                    for (const [cx, cy] of [[-cw / 2, -ch / 2], [cw / 2, -ch / 2], [cw / 2, ch / 2], [-cw / 2, ch / 2]]) {
+                        // 格子角落 → 照片座標（反推 render.js 的 translate · flip · rotate）
+                        let x = cx - p.offsetX;
+                        let y = cy - p.offsetY;
+                        if (cell.flipH) x = -x;
+                        if (cell.flipV) y = -y;
+                        const lx = x * Math.cos(t) + y * Math.sin(t);
+                        const ly = -x * Math.sin(t) + y * Math.cos(t);
+                        expect(Math.abs(lx)).toBeLessThanOrEqual((iw * p.scale) / 2 + 1e-6);
+                        expect(Math.abs(ly)).toBeLessThanOrEqual((ih * p.scale) / 2 + 1e-6);
+                    }
+                }
+            }
+        }
+    });
+
+    it('旋轉後拖曳方向跟著手指走', () => {
+        const cell = {zoom: 2, panX: 0, panY: 0, rotation: 30, flipH: true, flipV: false};
+        const before = computePlacement(100, 100, 400, 300, cell);
+        const next = {...cell, ...panBy(cell, 10, 0, before)};
+        const after = computePlacement(100, 100, 400, 300, next);
+        expect(after.offsetX - before.offsetX).toBeCloseTo(10);
+        expect(after.offsetY - before.offsetY).toBeCloseTo(0);
+    });
+
+    it('角度收斂到 ±180，手勢接近直角時吸附', () => {
+        expect(normalizeAngle(270)).toBe(-90);
+        expect(normalizeAngle(-190)).toBe(170);
+        expect(normalizeAngle(180)).toBe(180);
+        expect(snapAngle(88)).toBe(90);
+        expect(snapAngle(-2.5)).toBe(0);
+        expect(snapAngle(84)).toBe(84);
     });
 
     it('平移會被夾在可移動範圍內，沒有溢出的方向不動', () => {

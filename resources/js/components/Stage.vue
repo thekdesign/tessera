@@ -4,7 +4,7 @@ import {PhPlus} from '@phosphor-icons/vue';
 import {useCollageStore} from '../stores/collage.js';
 import {useImport} from '../composables/useImport.js';
 import {computeLayout, nodeAtPath, pointInRect, shiftRatios, unitOf} from '../lib/geometry.js';
-import {clampZoom, computePlacement, panBy} from '../lib/placement.js';
+import {clampZoom, computePlacement, normalizeAngle, panBy, snapAngle} from '../lib/placement.js';
 import {resolveParams} from '../lib/adjust.js';
 import {renderCollage} from '../lib/render.js';
 import {photoSize, photoThumb, previewSource} from '../lib/photos.js';
@@ -29,6 +29,9 @@ const fontTick = ref(0);
 const dragOverIndex = ref(-1);
 const swap = ref(undefined);
 const gesturing = ref(false);
+// 旋轉中的格子：顯示三分格線，手勢 / 滾輪旋轉時另外顯示角度
+const rotateGuide = ref(undefined); // {index, badge}
+const straightening = ref(false);
 
 /* ---------- 動態：換比例時對長寬比補間，舞台自然跟著變形 ---------- */
 
@@ -119,6 +122,12 @@ const placeholderInk = computed(() => contrastOn(store.doc.background));
 const pasteKey = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌘V' : 'Ctrl+V';
 
 const selectedIndex = computed(() => (store.selection.type === 'cell' ? store.selection.index : -1));
+// 工具列卸載（換格、清空）時不會收到 pointerup，自己收掉格線
+watch(selectedIndex, () => (straightening.value = false));
+const guide = computed(() => {
+    if (rotateGuide.value) return rotateGuide.value;
+    return straightening.value && selectedIndex.value >= 0 ? {index: selectedIndex.value, badge: false} : undefined;
+});
 const showToolbar = computed(
     () => selectedIndex.value >= 0 && store.doc.cells[selectedIndex.value]?.photoId && !gesturing.value && !swap.value,
 );
@@ -182,6 +191,7 @@ onBeforeUnmount(() => {
     cancelAnimationFrame(raf);
     cancelAspect?.();
     cancelMorph?.();
+    clearTimeout(wheelGuideTimer);
 });
 
 /* ---------- 座標 ---------- */
@@ -194,27 +204,74 @@ function local(e) {
 
 const inflate = (r, m) => ({x: r.x - m, y: r.y - m, w: r.w + m * 2, h: r.h + m * 2});
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const angleOf = (a, b) => (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+const midOf = (a, b) => ({x: (a.x + b.x) / 2, y: (a.y + b.y) / 2});
 
-/* ---------- 格子手勢：拖曳平移 / 雙指縮放 / 拖出格子交換 ---------- */
+// 雙指轉超過這個角度才開始旋轉，單純捏合縮放時的手抖不會把照片轉歪
+const ROTATE_DEADZONE = 8;
+
+/* ---------- 格子手勢：拖曳平移 / 雙指縮放旋轉 / 拖出格子交換 ---------- */
 
 const pointers = new Map();
 let gesture;
+
+function startPinch(index) {
+    const [a, b] = [...pointers.values()];
+    const cell = store.doc.cells[index];
+    gesture = {
+        mode: 'pinch',
+        index,
+        dist0: dist(a, b) || 1,
+        zoom0: cell.zoom,
+        angle0: angleOf(a, b),
+        rot0: cell.rotation,
+        rotating: false,
+        mid: midOf(a, b),
+    };
+    swap.value = undefined;
+    gesturing.value = true;
+}
 
 function onCellDown(index, e) {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     const p = local(e);
     pointers.set(e.pointerId, p);
-    store.select({type: 'cell', index});
-    const cell = store.doc.cells[index];
 
-    if (pointers.size === 2 && gesture && cell.photoId) {
-        const [a, b] = [...pointers.values()];
-        gesture = {mode: 'pinch', index: gesture.index, dist0: dist(a, b) || 1, zoom0: store.doc.cells[gesture.index].zoom};
-        swap.value = undefined;
+    // 第二指可能落在隔壁格，仍算是第一指那格的雙指手勢
+    if (pointers.size === 2 && gesture && store.doc.cells[gesture.index]?.photoId) {
+        startPinch(gesture.index);
         return;
     }
-    gesture = {mode: cell.photoId ? 'pan' : 'tap', index, start: p, last: p};
+    store.select({type: 'cell', index});
+    gesture = {mode: store.doc.cells[index].photoId ? 'pan' : 'tap', index, start: p, last: p};
+}
+
+function pinchMove(index, cell, rect) {
+    const [a, b] = [...pointers.values()];
+    const patch = {zoom: clampZoom((gesture.zoom0 * dist(a, b)) / gesture.dist0)};
+
+    const angle = angleOf(a, b);
+    if (!gesture.rotating && Math.abs(normalizeAngle(angle - gesture.angle0)) > ROTATE_DEADZONE) {
+        // 從越過門檻的這一刻起算，照片不會突然跳 8°
+        gesture.rotating = true;
+        gesture.angle0 = angle;
+        gesture.rot0 = cell.rotation;
+    }
+    if (gesture.rotating) {
+        patch.rotation = normalizeAngle(snapAngle(gesture.rot0 + normalizeAngle(angle - gesture.angle0)));
+        rotateGuide.value = {index, badge: true};
+    }
+    store.updateCell(index, patch);
+
+    // 雙指一起移動 → 平移
+    const m = midOf(a, b);
+    const photo = photoSize(cell.photoId);
+    if (photo) {
+        const placement = computePlacement(rect.w, rect.h, photo.width, photo.height, cell);
+        store.updateCell(index, panBy(cell, m.x - gesture.mid.x, m.y - gesture.mid.y, placement));
+    }
+    gesture.mid = m;
 }
 
 function onCellMove(e) {
@@ -227,9 +284,7 @@ function onCellMove(e) {
     if (!cell || !rect) return;
 
     if (gesture.mode === 'pinch') {
-        if (pointers.size < 2) return;
-        const [a, b] = [...pointers.values()];
-        store.updateCell(index, {zoom: clampZoom((gesture.zoom0 * dist(a, b)) / gesture.dist0)});
+        if (pointers.size >= 2) pinchMove(index, cell, rect);
         return;
     }
     if (gesture.mode === 'tap') return;
@@ -259,6 +314,7 @@ function onCellUp(e) {
     pointers.delete(e.pointerId);
     if (!gesture) return;
     if (gesture.mode === 'pinch') {
+        rotateGuide.value = undefined;
         if (pointers.size === 1) {
             // 放開一指後，剩下那指繼續平移
             const p = [...pointers.values()][0];
@@ -284,11 +340,22 @@ function onCellDblClick(index) {
     if (store.doc.cells[index]?.photoId) store.updateCell(index, {zoom: 1, panX: 0, panY: 0});
 }
 
+let wheelGuideTimer;
+
 function onWheel(index, e) {
     const cell = store.doc.cells[index];
     if (!cell?.photoId) return;
     e.preventDefault();
     store.select({type: 'cell', index});
+    // Option / Alt + 滾輪：旋轉
+    if (e.altKey) {
+        const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+        store.updateCell(index, {rotation: normalizeAngle(cell.rotation + delta * 0.12)});
+        rotateGuide.value = {index, badge: true};
+        clearTimeout(wheelGuideTimer);
+        wheelGuideTimer = setTimeout(() => (rotateGuide.value = undefined), 700);
+        return;
+    }
     // 觸控板雙指縮放會帶 ctrlKey，靈敏度放大
     const k = e.ctrlKey ? 0.01 : 0.0018;
     store.updateCell(index, {zoom: clampZoom(cell.zoom * Math.exp(-e.deltaY * k))});
@@ -359,6 +426,7 @@ function replace(index) {
             v-if="size.w"
             ref="layer"
             data-layer
+            data-tour="stage"
             class="anim-stage absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 shadow-sheet"
             :style="{width: `${size.w}px`, height: `${size.h}px`}"
             @pointerdown.self="store.clearSelection()"
@@ -369,6 +437,7 @@ function replace(index) {
             <div
                 v-for="(rect, i) in cells"
                 :key="`c${i}`"
+                :data-cell="i"
                 class="absolute touch-none select-none"
                 :class="store.doc.cells[i]?.photoId ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'"
                 :style="{left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.w}px`, height: `${rect.h}px`}"
@@ -447,6 +516,27 @@ function replace(index) {
                 />
             </template>
 
+            <!-- 旋轉輔助：三分格線 + 角度 -->
+            <Transition name="fade">
+                <div
+                    v-if="guide && cells[guide.index]"
+                    class="pointer-events-none absolute z-[15] overflow-hidden"
+                    :style="{
+                        left: `${cells[guide.index].x}px`,
+                        top: `${cells[guide.index].y}px`,
+                        width: `${cells[guide.index].w}px`,
+                        height: `${cells[guide.index].h}px`,
+                        borderRadius: `${Math.min(radiusPx, cells[guide.index].w / 2, cells[guide.index].h / 2)}px`,
+                    }"
+                >
+                    <div class="rotate-grid absolute inset-0" />
+                    <span
+                        v-if="guide.badge"
+                        class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-ink/75 px-2.5 py-1 text-xs font-semibold text-white tabular-nums"
+                    >{{ normalizeAngle(store.doc.cells[guide.index]?.rotation ?? 0) }}°</span>
+                </div>
+            </Transition>
+
             <!-- 分隔線把手 -->
             <div
                 v-for="d in (morphing ? [] : geo.dividers)"
@@ -488,6 +578,7 @@ function replace(index) {
                 :rect="cells[selectedIndex]"
                 :stage-w="size.w"
                 @replace="replace"
+                @straighten="straightening = $event"
             />
         </div>
 
