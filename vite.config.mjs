@@ -24,7 +24,7 @@ export default defineConfig({
                 short_name: 'Tessera',
                 description: '把多張照片拼成一張圖，照片只在你的裝置上處理。',
                 lang: 'zh-Hant',
-                theme_color: '#F4F5F7',
+                theme_color: '#FFFFFF',
                 background_color: '#F4F5F7',
                 display: 'standalone',
                 icons: [

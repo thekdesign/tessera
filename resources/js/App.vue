@@ -131,7 +131,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div class="flex h-full flex-col">
+    <div class="px-safe flex h-full flex-col bg-surface">
         <TopBar @export="exporting = true" @start-over="startOver" @help="helping = true" />
 
         <div class="flex min-h-0 flex-1 flex-col lg:flex-row">

@@ -277,8 +277,18 @@
         display: none;
     }
 
+    /* viewport-fit=cover 讓畫面延伸到動態島、圓角與 Home 指示條底下，四邊都要自己讓開 */
+    .pt-safe {
+        padding-top: env(safe-area-inset-top);
+    }
+
     .pb-safe {
         padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .px-safe {
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
     }
 
     @keyframes shimmer {
