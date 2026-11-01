@@ -62,7 +62,7 @@ const isTyping = (el) => el && (el.tagName === 'TEXTAREA' || (el.tagName === 'IN
 
 function onPaste(e) {
     if (isTyping(document.activeElement)) return;
-    const files = [...(e.clipboardData?.files || [])].filter(isMediaFile);
+    const files = [...(e.clipboardData?.files || [])].filter((f) => f.type && isMediaFile(f));
     if (!files.length) return;
     e.preventDefault();
     const sel = store.selection;
