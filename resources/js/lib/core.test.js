@@ -3,7 +3,8 @@ import {LAYOUTS, countLeaves} from './layouts.js';
 import {computeLayout, shiftRatios, MIN_RATIO} from './geometry.js';
 import {computePlacement, normalizeAngle, panBy, snapAngle} from './placement.js';
 import {applyToPixels, resolveParams, isIdentity} from './adjust.js';
-import {exportDimensions} from './exporter.js';
+import {exportDimensions, exportFileName, videoDimensions} from './exporter.js';
+import {isMediaFile, isVideoFile} from './photos.js';
 
 describe('layouts', () => {
     it('每個版型 id 唯一、ratios 加總為 1', () => {
@@ -151,5 +152,37 @@ describe('exportDimensions', () => {
         expect(exportDimensions({w: 4, h: 5}, 1080)).toEqual({width: 864, height: 1080});
         const big = exportDimensions({w: 1, h: 1}, 4096);
         expect(big.width * big.height).toBeLessThanOrEqual(16_000_000);
+    });
+});
+
+describe('video', () => {
+    it('影片匯出尺寸一定是偶數', () => {
+        for (const [w, h] of [[1, 1], [4, 5], [9, 16], [3, 2], [16, 9]]) {
+            for (const edge of [1280, 1920]) {
+                const {width, height} = videoDimensions({w, h}, edge);
+                expect(width % 2).toBe(0);
+                expect(height % 2).toBe(0);
+                expect(Math.max(width, height)).toBeLessThanOrEqual(edge);
+            }
+        }
+    });
+
+    it('依 MIME 判斷影片，沒有 MIME 時看副檔名', () => {
+        expect(isVideoFile({type: 'video/quicktime', name: 'a.mov'})).toBe(true);
+        expect(isVideoFile({type: 'image/jpeg', name: 'a.mp4'})).toBe(false);
+        expect(isVideoFile({type: '', name: 'A.MP4'})).toBe(true);
+        expect(isVideoFile({type: '', name: 'a.heic'})).toBe(false);
+    });
+
+    it('只接受照片與影片', () => {
+        expect(isMediaFile({type: 'image/png'})).toBe(true);
+        expect(isMediaFile({type: 'video/mp4'})).toBe(true);
+        expect(isMediaFile({type: ''})).toBe(true);
+        expect(isMediaFile({type: 'application/pdf'})).toBe(false);
+    });
+
+    it('檔名副檔名跟著格式走', () => {
+        expect(exportFileName('mp4')).toMatch(/\.mp4$/);
+        expect(exportFileName('jpg')).toMatch(/\.jpg$/);
     });
 });
