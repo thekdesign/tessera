@@ -1,6 +1,6 @@
 <script setup>
 import {computed} from 'vue';
-import {PhUploadSimple, PhX} from '@phosphor-icons/vue';
+import {PhPlay, PhUploadSimple, PhX} from '@phosphor-icons/vue';
 import {useCollageStore} from '../../stores/collage.js';
 import {useImport} from '../../composables/useImport.js';
 import {useToast} from '../../composables/useToast.js';
@@ -17,12 +17,17 @@ const cellOf = computed(() => {
     return map;
 });
 
+function formatDuration(seconds) {
+    const total = Math.round(seconds);
+    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
 function onDragStart(id, e) {
     e.dataTransfer.setData('application/x-tessera-photo', id);
     e.dataTransfer.effectAllowed = 'move';
 }
 
-/** 點照片：放進選取的格子；沒選就放進第一個空格 */
+/** 點照片或影片：放進選取的格子；沒選就放進第一個空格 */
 function place(id) {
     let index = store.selection.type === 'cell' ? store.selection.index : -1;
     if (index < 0) index = store.doc.cells.findIndex((c) => !c.photoId);
@@ -42,13 +47,13 @@ function place(id) {
             @click="pickFiles()"
         >
             <PhUploadSimple :size="18" />
-            加入照片
+            加入照片或影片
         </button>
 
         <div v-if="store.photos.length">
             <SectionTitle>
                 照片匣
-                <template #aside>{{ store.photos.length }} 張・{{ store.unusedPhotos.length }} 張未使用</template>
+                <template #aside>{{ store.photos.length }} 個・{{ store.unusedPhotos.length }} 個未使用</template>
             </SectionTitle>
             <ul class="grid grid-cols-4 gap-2 lg:grid-cols-3">
                 <li v-for="p in store.photos" :key="p.id" class="group relative">
@@ -64,6 +69,13 @@ function place(id) {
                         <img :src="photoThumb(p.id)" :alt="p.name" class="size-full object-cover" :class="!cellOf.get(p.id) && 'opacity-60'" />
                     </button>
                     <span
+                        v-if="p.kind === 'video'"
+                        class="pointer-events-none absolute right-1 bottom-1 flex items-center gap-0.5 rounded bg-ink/80 px-1 py-0.5 text-[10px] leading-none font-semibold text-white tabular-nums"
+                    >
+                        <PhPlay :size="9" weight="fill" />
+                        {{ formatDuration(p.duration) }}
+                    </span>
+                    <span
                         v-if="cellOf.get(p.id)"
                         class="pointer-events-none absolute top-1 left-1 grid size-5 place-items-center rounded-full bg-ink/80 text-[11px] font-semibold text-white tabular-nums"
                     >{{ cellOf.get(p.id) }}</span>
@@ -78,11 +90,11 @@ function place(id) {
                 </li>
             </ul>
             <p class="mt-3 text-xs leading-relaxed text-ink-3">
-                拖曳照片到格子上，或點一下放進選取的格子。在格子裡拖曳可調整位置，拖出格子外可和其他格交換。
+                拖曳照片或影片到格子上，或點一下放進選取的格子。在格子裡拖曳可調整位置，拖出格子外可和其他格交換。
             </p>
         </div>
         <p v-else class="text-xs leading-relaxed text-ink-3">
-            照片只會在這台裝置上處理，不會上傳到任何伺服器。
+            照片和影片只會在這台裝置上處理，不會上傳到任何伺服器。
         </p>
     </div>
 </template>

@@ -5,6 +5,7 @@ import {useCollageStore} from './stores/collage.js';
 import {useImport} from './composables/useImport.js';
 import {useToast} from './composables/useToast.js';
 import {useTour} from './composables/useTour.js';
+import {isMediaFile} from './lib/photos.js';
 import {ensureFontStylesheet} from './lib/fonts.js';
 import {TOOLS} from './lib/tools.js';
 import {reducedMotion} from './lib/motion.js';
@@ -61,7 +62,7 @@ const isTyping = (el) => el && (el.tagName === 'TEXTAREA' || (el.tagName === 'IN
 
 function onPaste(e) {
     if (isTyping(document.activeElement)) return;
-    const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'));
+    const files = [...(e.clipboardData?.files || [])].filter(isMediaFile);
     if (!files.length) return;
     e.preventDefault();
     const sel = store.selection;
