@@ -39,8 +39,8 @@ function chapterSteps(id, store) {
                     element: '[data-tour="stage"]',
                     title: '這是你的畫布',
                     body: touch
-                        ? '點任一個空格就能從相簿挑照片，一次選多張會自動依序填滿。<br>照片只在這台裝置上處理，不會上傳。'
-                        : `點空格選檔、把照片拖進來，或直接 <kbd>${modKey}</kbd> <kbd>V</kbd> 貼上；一次多張會自動依序填滿。<br>照片只在這台裝置上處理，不會上傳。`,
+                        ? '點任一個空格就能從相簿挑照片或影片，一次選多個會自動依序填滿。<br>照片和影片只在這台裝置上處理，不會上傳。'
+                        : `點空格選檔、把照片或影片拖進來，或直接 <kbd>${modKey}</kbd> <kbd>V</kbd> 貼上；一次多個會自動依序填滿。<br>照片和影片只在這台裝置上處理，不會上傳。`,
                     prepare: () => store.clearSelection(),
                 },
                 {

@@ -105,14 +105,15 @@ export function applyToPixels(data, p) {
 /**
  * 產生調色後的畫布。source 可為 HTMLImageElement / Canvas / ImageBitmap。
  * maxEdge 用來把來源縮到需要的大小再運算，避免對 12MP 原圖逐像素處理。
+ * target 可重複使用同一張畫布（影片每一幀都要跑，不能每次都配置新的）。
  */
-export function processImage(source, srcW, srcH, params, maxEdge = Infinity) {
+export function processImage(source, srcW, srcH, params, maxEdge = Infinity, target = document.createElement('canvas')) {
     const ratio = Math.min(1, maxEdge / Math.max(srcW, srcH));
     const w = Math.max(1, Math.round(srcW * ratio));
     const h = Math.max(1, Math.round(srcH * ratio));
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
+    const canvas = target;
+    if (canvas.width !== w) canvas.width = w;
+    if (canvas.height !== h) canvas.height = h;
     const ctx = canvas.getContext('2d', {willReadFrequently: true});
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(source, 0, 0, w, h);

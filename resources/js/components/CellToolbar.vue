@@ -9,6 +9,8 @@ import {
     PhFlipVertical,
     PhImage,
     PhSliders,
+    PhSpeakerHigh,
+    PhSpeakerSlash,
     PhTrash,
 } from '@phosphor-icons/vue';
 import {useCollageStore} from '../stores/collage.js';
@@ -24,10 +26,12 @@ const emit = defineEmits(['replace', 'straighten']);
 const store = useCollageStore();
 const cell = computed(() => store.doc.cells[props.index]);
 
-const BAR_HALF = 136;
+const isVideo = computed(() => store.isVideo(cell.value?.photoId));
+
 const style = computed(() => {
+    const barHalf = isVideo.value ? 155 : 136;
     const cx = props.rect.x + props.rect.w / 2;
-    const left = props.stageW > BAR_HALF * 2 ? Math.min(props.stageW - BAR_HALF, Math.max(BAR_HALF, cx)) : props.stageW / 2;
+    const left = props.stageW > barHalf * 2 ? Math.min(props.stageW - barHalf, Math.max(barHalf, cx)) : props.stageW / 2;
     // 格子太靠上就把工具列放進格子裡
     const above = props.rect.y > 52;
     return {
@@ -38,7 +42,14 @@ const style = computed(() => {
 });
 
 const actions = computed(() => [
-    {label: '換照片', icon: PhImage, run: () => emit('replace', props.index)},
+    {label: isVideo.value ? '換影片或照片' : '換照片', icon: PhImage, run: () => emit('replace', props.index)},
+    ...(isVideo.value
+        ? [{
+            label: cell.value.muted ? '開啟聲音' : '關閉聲音',
+            icon: cell.value.muted ? PhSpeakerSlash : PhSpeakerHigh,
+            run: () => store.updateCell(props.index, {muted: !cell.value.muted}),
+        }]
+        : []),
     {
         label: '旋轉角度',
         icon: PhAngle,

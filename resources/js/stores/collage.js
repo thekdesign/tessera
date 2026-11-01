@@ -4,6 +4,7 @@ import {cloneTree, countLeaves, DEFAULT_LAYOUT_ID, findLayout} from '../lib/layo
 import {nodeAtPath} from '../lib/geometry.js';
 import {EMPTY_ADJUST} from '../lib/adjust.js';
 import {clearDraft, forgetPhoto, importFiles, loadDraft, saveDraft} from '../lib/photos.js';
+import {reducedMotion} from '../lib/motion.js';
 
 export const ASPECTS = [
     {id: '1:1', w: 1, h: 1, hint: '正方形'},
@@ -26,6 +27,7 @@ export const newCell = (photoId) => ({
     rotation: 0,
     flipH: false,
     flipV: false,
+    muted: false,
     filter: 'none',
     adjust: {...EMPTY_ADJUST},
 });
@@ -74,11 +76,19 @@ export const useCollageStore = defineStore('collage', () => {
     const morphTick = ref(0);
     // 正在等照片解碼的格子
     const loadingCells = ref(new Set());
+    // 影片是否播放中（使用者偏好減少動態時預設暫停）
+    const playing = ref(!reducedMotion());
 
     const aspect = computed(() => ASPECTS.find((a) => a.id === doc.aspect) || ASPECTS[0]);
     const usedPhotoIds = computed(() => new Set(doc.cells.map((c) => c.photoId).filter(Boolean)));
     const unusedPhotos = computed(() => photos.value.filter((p) => !usedPhotoIds.value.has(p.id)));
     const filledCount = computed(() => doc.cells.filter((c) => c.photoId).length);
+    const videoIds = computed(() => new Set(photos.value.filter((p) => p.kind === 'video').map((p) => p.id)));
+    const videoCells = computed(() => doc.cells.filter((c) => videoIds.value.has(c.photoId)));
+    const videoDuration = computed(() => {
+        const used = new Set(videoCells.value.map((c) => c.photoId));
+        return Math.max(0, ...photos.value.filter((p) => used.has(p.id)).map((p) => p.duration));
+    });
     const selectedCell = computed(() => (selection.value.type === 'cell' ? doc.cells[selection.value.index] : undefined));
     const selectedOverlay = computed(() =>
         selection.value.type === 'overlay' ? doc.overlays.find((o) => o.id === selection.value.id) : undefined,
@@ -121,6 +131,8 @@ export const useCollageStore = defineStore('collage', () => {
         restore(future.value.pop());
     }
 
+    const isVideo = (photoId) => videoIds.value.has(photoId);
+
     const canUndo = computed(() => past.value.length > 0);
     const canRedo = computed(() => future.value.length > 0);
 
@@ -154,10 +166,17 @@ export const useCollageStore = defineStore('collage', () => {
 
     /* ---------- 照片 ---------- */
 
+    // 多支影片同時出聲只會吵成一團：只有第一支預設有聲音，其他要自己打開
+    function cellFor(photoId, index) {
+        const cell = newCell(photoId);
+        cell.muted = videoIds.value.has(photoId) && doc.cells.some((c, i) => i !== index && videoIds.value.has(c.photoId) && !c.muted);
+        return cell;
+    }
+
     function autoFill() {
         const queue = [...unusedPhotos.value];
         doc.cells.forEach((cell, i) => {
-            if (!cell.photoId && queue.length) doc.cells[i] = newCell(queue.shift().id);
+            if (!cell.photoId && queue.length) doc.cells[i] = cellFor(queue.shift().id, i);
         });
     }
 
@@ -175,7 +194,7 @@ export const useCollageStore = defineStore('collage', () => {
             photos.value.push(meta);
             const index = targets.shift();
             if (index === undefined) return;
-            doc.cells[index] = newCell(meta.id);
+            doc.cells[index] = cellFor(meta.id, index);
             const next = new Set(loadingCells.value);
             next.delete(index);
             loadingCells.value = next;
@@ -198,7 +217,7 @@ export const useCollageStore = defineStore('collage', () => {
             swapCells(from, index);
             return;
         }
-        doc.cells[index] = newCell(photoId);
+        doc.cells[index] = cellFor(photoId, index);
         selection.value = {type: 'cell', index};
     }
 
@@ -324,8 +343,8 @@ export const useCollageStore = defineStore('collage', () => {
     }
 
     return {
-        doc, photos, selection, activeTool, editingOverlayId, rotateRuler, ready, morphTick, loadingCells,
-        aspect, unusedPhotos, filledCount, selectedCell, selectedOverlay,
+        doc, photos, selection, activeTool, editingOverlayId, rotateRuler, ready, morphTick, loadingCells, playing,
+        aspect, unusedPhotos, filledCount, selectedCell, selectedOverlay, videoCells, videoDuration, isVideo,
         canUndo, canRedo, undo, redo, init,
         addFiles, placePhoto, swapCells, clearCell, removePhoto, updateCell, applyToneToAll,
         setLayout, setRatios, resetRatios,

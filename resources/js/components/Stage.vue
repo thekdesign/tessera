@@ -1,13 +1,13 @@
 <script setup>
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue';
-import {PhPlus} from '@phosphor-icons/vue';
+import {PhPause, PhPlay, PhPlus} from '@phosphor-icons/vue';
 import {useCollageStore} from '../stores/collage.js';
 import {useImport} from '../composables/useImport.js';
 import {computeLayout, nodeAtPath, pointInRect, shiftRatios, unitOf} from '../lib/geometry.js';
 import {clampZoom, computePlacement, normalizeAngle, panBy, snapAngle} from '../lib/placement.js';
 import {resolveParams} from '../lib/adjust.js';
 import {renderCollage} from '../lib/render.js';
-import {photoSize, photoThumb, previewSource} from '../lib/photos.js';
+import {photoSize, photoThumb, previewSource, syncPlayback} from '../lib/photos.js';
 import {contrastOn} from '../lib/overlays.js';
 import {requestOverlayFonts} from '../lib/fonts.js';
 import {animate, easeOutQuart, lerp, lerpRect, reducedMotion} from '../lib/motion.js';
@@ -164,10 +164,21 @@ function draw() {
         cellFx,
         getSource: (cell) => previewSource(cell.photoId, resolveParams(cell.filter, cell.adjust)),
     });
-    if (appearing.size) scheduleDraw();
+    if (appearing.size || videoLive.value) scheduleDraw();
 }
 
-watch(() => [store.doc, size.value, cells.value, store.photos.length], scheduleDraw, {deep: true});
+watch(() => [store.doc, size.value, cells.value, store.photos.length, store.playing], scheduleDraw, {deep: true});
+
+/* ---------- 影片：格子裡的才播放；播放中舞台持續重畫 ---------- */
+
+const hasVideo = computed(() => store.videoCells.length > 0);
+const videoLive = computed(() => hasVideo.value && store.playing);
+
+function syncVideos() {
+    if (hasVideo.value || store.photos.some((p) => p.kind === 'video')) syncPlayback(store.videoCells, store.playing);
+}
+
+watch(() => [store.videoCells.map((c) => `${c.photoId}:${Boolean(c.muted)}`).join(), store.playing], syncVideos);
 
 function onFontsLoaded() {
     fontTick.value++;
@@ -182,12 +193,17 @@ onMounted(() => {
     });
     observer.observe(wrap.value);
     document.fonts?.addEventListener('loadingdone', onFontsLoaded);
+    // 有聲播放要等使用者操作過，每次操作後補同步一次
+    window.addEventListener('pointerup', syncVideos);
+    window.addEventListener('keydown', syncVideos);
     scheduleDraw();
 });
 
 onBeforeUnmount(() => {
     observer?.disconnect();
     document.fonts?.removeEventListener('loadingdone', onFontsLoaded);
+    window.removeEventListener('pointerup', syncVideos);
+    window.removeEventListener('keydown', syncVideos);
     cancelAnimationFrame(raf);
     cancelAspect?.();
     cancelMorph?.();
@@ -473,7 +489,7 @@ function replace(index) {
                         <span class="grid size-9 place-items-center rounded-full bg-current/10">
                             <PhPlus :size="18" weight="bold" />
                         </span>
-                        <span v-if="rect.w > 96 && rect.h > 80" class="text-xs font-medium">加入照片</span>
+                        <span v-if="rect.w > 96 && rect.h > 80" class="text-xs font-medium">加入照片或影片</span>
                     </span>
                 </div>
                 <div
@@ -582,11 +598,27 @@ function replace(index) {
             />
         </div>
 
+        <Transition name="fade">
+            <button
+                v-if="hasVideo"
+                type="button"
+                class="absolute right-3 bottom-3 z-30 grid size-10 place-items-center rounded-full border border-line bg-surface text-ink-2 shadow-float transition-[background-color,transform] hover:bg-desk active:scale-95"
+                :aria-label="store.playing ? '暫停影片' : '播放影片'"
+                :title="store.playing ? '暫停影片' : '播放影片'"
+                @click="store.playing = !store.playing"
+            >
+                <Transition name="swap" mode="out-in">
+                    <PhPause v-if="store.playing" key="pause" :size="18" weight="fill" />
+                    <PhPlay v-else key="play" :size="18" weight="fill" />
+                </Transition>
+            </button>
+        </Transition>
+
         <p
             v-if="store.ready && !store.photos.length"
             class="pointer-events-none absolute inset-x-0 bottom-3 hidden text-center text-xs text-ink-3 lg:block"
         >
-            把照片拖進來、點空格選檔，或直接 {{ pasteKey }} 貼上
+            把照片或影片拖進來、點空格選檔，或直接 {{ pasteKey }} 貼上
         </p>
     </div>
 </template>
