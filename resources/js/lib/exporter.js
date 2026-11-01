@@ -124,6 +124,7 @@ export async function exportCollageVideo(liveDoc, aspect, {longEdge, onProgress 
     try {
         const sources = [];
         for (const [i, rect] of rects.entries()) {
+            signal?.throwIfAborted();
             const cell = doc.cells[i];
             const size = cell?.photoId && photoSize(cell.photoId);
             if (!size) {
@@ -175,8 +176,6 @@ export async function exportCollageVideo(liveDoc, aspect, {longEdge, onProgress 
         const chunks = [];
         recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
 
-        await playAll(players);
-
         let failure;
         const stop = (reason) => {
             failure = reason;
@@ -185,26 +184,36 @@ export async function exportCollageVideo(liveDoc, aspect, {longEdge, onProgress 
         const onAbort = () => stop(new DOMException('Aborted', 'AbortError'));
         // 背景分頁的 requestAnimationFrame 會停，繼續錄只會錄到定格畫面，不如中斷
         const onVisibility = () => document.hidden && stop(new Error('page-hidden'));
+        // 準備階段（載入影片、等字型）按的取消，要在這裡接住
+        signal?.throwIfAborted();
         signal?.addEventListener('abort', onAbort);
         document.addEventListener('visibilitychange', onVisibility);
         try {
             await new Promise((resolve, reject) => {
                 recorder.onstop = resolve;
                 recorder.onerror = (e) => reject(e.error || new Error('encode-failed'));
+                // 先開始錄才播放，影片開頭才不會被吃掉；計時從全部開播後算
                 recorder.start(1000);
-                const startedAt = performance.now();
-                const tick = () => {
-                    if (recorder.state !== 'recording') return;
-                    const elapsed = (performance.now() - startedAt) / 1000;
-                    if (elapsed >= duration) {
-                        recorder.stop();
-                        return;
-                    }
-                    draw();
-                    onProgress(elapsed / duration);
-                    requestAnimationFrame(tick);
-                };
-                tick();
+                playAll(players).then(() => {
+                    const startedAt = performance.now();
+                    const tick = () => {
+                        if (recorder.state !== 'recording') return;
+                        try {
+                            const elapsed = (performance.now() - startedAt) / 1000;
+                            if (elapsed >= duration) {
+                                recorder.stop();
+                                return;
+                            }
+                            // 循環回跳或卡頓時還沒有畫面可畫，維持上一幀，才不會閃背景色或重複調色
+                            if (players.every((p) => p.video.readyState >= 2)) draw();
+                            onProgress(elapsed / duration);
+                            requestAnimationFrame(tick);
+                        } catch (err) {
+                            stop(err);
+                        }
+                    };
+                    tick();
+                }, stop);
             });
         } finally {
             signal?.removeEventListener('abort', onAbort);

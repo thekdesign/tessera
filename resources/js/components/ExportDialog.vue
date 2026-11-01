@@ -114,6 +114,12 @@ function finish(label) {
 
 async function share() {
     const file = await getFile();
+    // 分享按鈕是用 JPG 探測的，錄出來的影片格式不一定也能分享；檔案留著，改按下載不用重錄
+    if (!navigator.canShare?.({files: [file]})) {
+        phase.value = 'idle';
+        toast('這個瀏覽器無法分享這種檔案，請改用下載', {tone: 'error', duration: 4000});
+        return;
+    }
     try {
         await navigator.share({files: [file], title: 'Tessera 組圖'});
     } catch (err) {

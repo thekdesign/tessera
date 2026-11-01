@@ -48,8 +48,12 @@ export function isMediaFile(file) {
 }
 
 function seek(video, time) {
-    return new Promise((resolve) => {
-        video.addEventListener('seeked', resolve, {once: true});
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('decode-failed')), VIDEO_LOAD_TIMEOUT);
+        video.addEventListener('seeked', () => {
+            clearTimeout(timer);
+            resolve();
+        }, {once: true});
         video.currentTime = time;
     });
 }
@@ -84,6 +88,7 @@ async function openVideo(blob) {
         if (!video.videoWidth) throw new Error('decode-failed');
         // MediaRecorder 錄的 WebM 沒有長度資訊，跳到尾端瀏覽器才算得出來
         if (!Number.isFinite(video.duration)) await seek(video, 1e9);
+        if (!Number.isFinite(video.duration)) throw new Error('decode-failed');
         await seek(video, Math.min(0.1, video.duration / 2));
     })();
     try {
@@ -205,7 +210,9 @@ export function syncPlayback(videoCells, playing) {
             continue;
         }
         asset.video.muted = Boolean(cell.muted) || !allowSound;
-        asset.video.play().catch(() => {
+        asset.video.play().catch((err) => {
+            // pause() 打斷 play() 也會 reject，那不是被擋，不能重新播放
+            if (err?.name !== 'NotAllowedError') return;
             asset.video.muted = true;
             asset.video.play().catch(() => {});
         });
@@ -280,7 +287,12 @@ export async function exportSource(id, params, neededEdge) {
 export async function openExportVideo(id) {
     const asset = assets.get(id);
     const {video, url} = await openVideo(asset.blob);
-    await seek(video, 0);
+    try {
+        await seek(video, 0);
+    } catch (err) {
+        closeVideo(video, url);
+        throw err;
+    }
     return {video, duration: asset.duration, close: () => closeVideo(video, url)};
 }
 
