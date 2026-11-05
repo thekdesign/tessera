@@ -114,6 +114,12 @@ export async function exportCollageVideo(liveDoc, aspect, {longEdge, onProgress 
     const audioCtx = hasSound ? new AudioContext() : undefined;
     audioCtx?.resume();
 
+    // 同樣要趁點擊的當下開好所有影片：iPhone 低耗電模式下，離開點擊事件後就不准播放
+    const opening = doc.cells.map((c) => (c.photoId && isVideoAsset(c.photoId) ? openExportVideo(c.photoId) : undefined));
+    const opened = opening.filter(Boolean);
+    // 失敗的會在下面 await 時拋出；先接住，免得其他還沒輪到的被當成未處理的錯誤
+    opened.forEach((p) => p.catch(() => {}));
+
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
@@ -139,7 +145,7 @@ export async function exportCollageVideo(liveDoc, aspect, {longEdge, onProgress 
                 sources.push(() => still);
                 continue;
             }
-            const player = await openExportVideo(cell.photoId);
+            const player = await opening[i];
             player.muted = Boolean(cell.muted);
             players.push(player);
             let frame;
@@ -226,7 +232,9 @@ export async function exportCollageVideo(liveDoc, aspect, {longEdge, onProgress 
         return {blob: new Blob(chunks, {type: baseType}), width, height, format: baseType === 'video/mp4' ? 'mp4' : 'webm'};
     } finally {
         stream?.getTracks().forEach((t) => t.stop());
-        players.forEach((p) => p.close());
+        for (const result of await Promise.allSettled(opened)) {
+            if (result.status === 'fulfilled') result.value.close();
+        }
         audioCtx?.close();
         canvas.width = 0;
     }

@@ -160,6 +160,10 @@ async function run(action) {
     } catch (err) {
         phase.value = 'idle';
         if (err?.name === 'AbortError') return;
+        if (err?.message === 'playback-blocked') {
+            toast('瀏覽器擋下了影片播放。iPhone 開著低耗電模式時會這樣，關閉後再試一次', {tone: 'error', duration: 5000});
+            return;
+        }
         if (err?.message === 'page-hidden') {
             toast('錄製時離開了頁面，所以中斷了。請留在這個頁面再試一次', {tone: 'error', duration: 4000});
             return;

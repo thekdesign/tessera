@@ -78,6 +78,11 @@ function onDrop(e) {
     if (e.dataTransfer?.files.length) addFiles(e.dataTransfer.files);
 }
 
+// 被擋下的影片要在使用者操作的當下載入，瀏覽器才會放行
+function onGesture() {
+    if (store.pendingVideos.length) store.loadPendingVideos();
+}
+
 function onKeydown(e) {
     if (isTyping(e.target) || tour.running.value) return;
     const mod = e.metaKey || e.ctrlKey;
@@ -118,7 +123,12 @@ onMounted(async () => {
     window.addEventListener('dragover', onDragOver);
     window.addEventListener('drop', onDrop);
     window.addEventListener('keydown', onKeydown);
+    window.addEventListener('pointerup', onGesture);
+    window.addEventListener('keyup', onGesture);
     if (await store.init()) toast('已還原上次的作品');
+    if (store.pendingVideos.length) {
+        toast(`還有 ${store.pendingVideos.length} 支影片沒載入，點一下畫面就會出現`, {duration: 5000});
+    }
     // 第一次來：自動播「開始使用」，其他章節留在說明選單裡隨時看
     if (!tour.seen.value.has('start')) setTimeout(() => tour.start(['start']), 600);
 });
@@ -128,6 +138,8 @@ onBeforeUnmount(() => {
     window.removeEventListener('dragover', onDragOver);
     window.removeEventListener('drop', onDrop);
     window.removeEventListener('keydown', onKeydown);
+    window.removeEventListener('pointerup', onGesture);
+    window.removeEventListener('keyup', onGesture);
 });
 </script>
 

@@ -66,16 +66,21 @@ function closeVideo(video, url) {
     URL.revokeObjectURL(url);
 }
 
-/** 建立靜音、循環的 video 元素，並停在封面幀 */
+/**
+ * 建立靜音、循環的 video 元素，並停在封面幀。
+ * 呼叫後到第一個 await 之前會同步呼叫 play()，所以在點擊事件裡呼叫就帶著使用者操作的授權
+ */
 async function openVideo(blob) {
     const url = URL.createObjectURL(blob);
     const video = document.createElement('video');
+    video.defaultMuted = true;
     video.muted = true;
     video.loop = true;
     video.playsInline = true;
     video.preload = 'auto';
     // iOS Safari 對不在 DOM 裡的影片可能不解碼畫面，所以掛上去但不顯示
-    video.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
+    // 透明度留一點點：完全透明可能被 iOS 當成看不見，靜音自動播放會被暫停
+    video.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0.01;pointer-events:none';
     document.body.append(video);
 
     let timer;
@@ -84,7 +89,13 @@ async function openVideo(blob) {
             video.onloadeddata = resolve;
             video.onerror = () => reject(new Error('decode-failed'));
             video.src = url;
+            // iOS Safari 不理 preload，影片要開始播放才會載入畫面；靜音內嵌播放平常不需要使用者操作，
+            // 但低耗電模式會擋，這時直接回報，不必空等逾時
+            video.play().catch((err) => {
+                if (err?.name === 'NotAllowedError') reject(new Error('playback-blocked'));
+            });
         });
+        video.pause();
         if (!video.videoWidth) throw new Error('decode-failed');
         // MediaRecorder 錄的 WebM 沒有長度資訊，跳到尾端瀏覽器才算得出來
         if (!Number.isFinite(video.duration)) await seek(video, 1e9);
@@ -166,6 +177,7 @@ function makeThumb(canvas) {
 export async function importFiles(files, onPhoto = () => {}) {
     const photos = [];
     let failed = 0;
+    let blocked = 0;
     for (const file of files) {
         if (!isMediaFile(file)) {
             failed++;
@@ -177,11 +189,12 @@ export async function importFiles(files, onPhoto = () => {}) {
             photos.push(meta);
             onPhoto(meta);
             set(`photo:${id}`, {blob: file, name: meta.name}).catch(() => {});
-        } catch {
-            failed++;
+        } catch (err) {
+            if (err?.message === 'playback-blocked') blocked++;
+            else failed++;
         }
     }
-    return {photos, failed};
+    return {photos, failed, blocked};
 }
 
 export function photoSize(id) {
@@ -283,6 +296,11 @@ export async function exportSource(id, params, neededEdge) {
     return processImage(img, img.naturalWidth, img.naturalHeight, params, Math.ceil(neededEdge));
 }
 
+/** 草稿裡被擋下的影片，等使用者點一下畫面後在點擊事件裡重新載入 */
+export function registerPending({id, blob, name}) {
+    return registerBlob(id, blob, name);
+}
+
 /** 匯出影片用：開一個獨立的 video 從頭播，不影響預覽 */
 export async function openExportVideo(id) {
     const asset = assets.get(id);
@@ -309,16 +327,18 @@ export async function loadDraft() {
         const draft = await get(DRAFT_KEY);
         if (!draft) return undefined;
         const photos = [];
+        const pending = [];
         for (const meta of draft.photos) {
             const stored = await get(`photo:${meta.id}`);
             if (!stored) continue;
             try {
                 photos.push(await registerBlob(meta.id, stored.blob, stored.name));
-            } catch {
-                // 單張壞掉就略過，不影響其他照片
+            } catch (err) {
+                // 被擋下的影片先留著，其餘壞掉的單張就略過，不影響其他照片
+                if (err?.message === 'playback-blocked') pending.push({id: meta.id, blob: stored.blob, name: stored.name});
             }
         }
-        return {doc: draft.doc, photos};
+        return {doc: draft.doc, photos, pending};
     } catch {
         return undefined;
     }

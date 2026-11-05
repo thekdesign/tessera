@@ -1,9 +1,9 @@
 import {defineStore} from 'pinia';
-import {computed, reactive, ref, watch} from 'vue';
+import {computed, reactive, ref, shallowRef, watch} from 'vue';
 import {cloneTree, countLeaves, DEFAULT_LAYOUT_ID, findLayout} from '../lib/layouts.js';
 import {nodeAtPath} from '../lib/geometry.js';
 import {EMPTY_ADJUST} from '../lib/adjust.js';
-import {clearDraft, forgetPhoto, importFiles, loadDraft, saveDraft} from '../lib/photos.js';
+import {clearDraft, forgetPhoto, importFiles, loadDraft, registerPending, saveDraft} from '../lib/photos.js';
 import {reducedMotion} from '../lib/motion.js';
 
 export const ASPECTS = [
@@ -78,6 +78,8 @@ export const useCollageStore = defineStore('collage', () => {
     const loadingCells = ref(new Set());
     // 影片是否播放中（使用者偏好減少動態時預設暫停）
     const playing = ref(!reducedMotion());
+    // 還原草稿時被瀏覽器擋下的影片（iPhone 低耗電模式），等使用者點一下再載入
+    const pendingVideos = shallowRef([]);
 
     const aspect = computed(() => ASPECTS.find((a) => a.id === doc.aspect) || ASPECTS[0]);
     const usedPhotoIds = computed(() => new Set(doc.cells.map((c) => c.photoId).filter(Boolean)));
@@ -139,7 +141,8 @@ export const useCollageStore = defineStore('collage', () => {
     /* ---------- 草稿自動保存 ---------- */
 
     const autosave = debounce(() => {
-        saveDraft(JSON.parse(JSON.stringify(doc)), photos.value.map((p) => ({id: p.id})));
+        // 還沒載入的影片也要留在草稿裡，否則重新整理就不見了
+        saveDraft(JSON.parse(JSON.stringify(doc)), [...photos.value, ...pendingVideos.value].map((p) => ({id: p.id})));
     }, 600);
 
     watch(doc, () => {
@@ -151,8 +154,9 @@ export const useCollageStore = defineStore('collage', () => {
     async function init() {
         const draft = await loadDraft();
         if (draft) {
-            const known = new Set(draft.photos.map((p) => p.id));
+            const known = new Set([...draft.photos, ...draft.pending].map((p) => p.id));
             photos.value = draft.photos;
+            pendingVideos.value = draft.pending;
             Object.assign(doc, draft.doc);
             // 找不到原圖的格子清空，避免畫出空洞
             doc.cells.forEach((cell, i) => {
@@ -161,7 +165,21 @@ export const useCollageStore = defineStore('collage', () => {
             current = JSON.stringify(doc);
         }
         ready.value = true;
-        return Boolean(draft && draft.photos.length);
+        return Boolean(draft && (draft.photos.length || draft.pending.length));
+    }
+
+    /** 必須在使用者操作的事件裡同步呼叫：每支影片在第一個 await 前就呼叫 play() */
+    async function loadPendingVideos() {
+        const list = pendingVideos.value;
+        if (!list.length) return;
+        pendingVideos.value = [];
+        const results = await Promise.allSettled(list.map(registerPending));
+        const still = [];
+        results.forEach((r, i) => {
+            if (r.status === 'fulfilled') photos.value.push(r.value);
+            else if (r.reason?.message === 'playback-blocked') still.push(list[i]);
+        });
+        pendingVideos.value = [...pendingVideos.value, ...still];
     }
 
     /* ---------- 照片 ---------- */
@@ -336,16 +354,17 @@ export const useCollageStore = defineStore('collage', () => {
     }
 
     async function startOver() {
-        await clearDraft(photos.value.map((p) => p.id));
+        await clearDraft([...photos.value, ...pendingVideos.value].map((p) => p.id));
         photos.value = [];
+        pendingVideos.value = [];
         Object.assign(doc, freshDoc());
         clearSelection();
     }
 
     return {
-        doc, photos, selection, activeTool, editingOverlayId, rotateRuler, ready, morphTick, loadingCells, playing,
+        doc, photos, selection, activeTool, editingOverlayId, rotateRuler, ready, morphTick, loadingCells, playing, pendingVideos,
         aspect, unusedPhotos, filledCount, selectedCell, selectedOverlay, videoCells, videoDuration, isVideo,
-        canUndo, canRedo, undo, redo, init,
+        canUndo, canRedo, undo, redo, init, loadPendingVideos,
         addFiles, placePhoto, swapCells, clearCell, removePhoto, updateCell, applyToneToAll,
         setLayout, setRatios, resetRatios,
         addText, addSticker, updateOverlay, removeOverlay, duplicateOverlay, bringToFront,
