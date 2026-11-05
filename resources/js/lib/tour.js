@@ -8,7 +8,7 @@ import {canShareFiles, isIOS, isTouch, modKey} from './platform.js';
  */
 
 export const CHAPTERS = [
-    {id: 'start', title: '開始使用', desc: '畫布、加入照片、照片匣', icon: PhSparkle},
+    {id: 'start', title: '開始使用', desc: '畫布、加入照片與影片、檔案建議', icon: PhSparkle},
     {id: 'layout', title: '版型與邊框', desc: '換版型、拖分隔線、比例與背景', icon: PhSquaresFour},
     {id: 'cell', title: '調整照片', desc: '移動縮放、旋轉角度、交換格子', icon: PhHandGrabbing},
     {id: 'tone', title: '濾鏡與調色', desc: '濾鏡、細部調整、一鍵套用', icon: PhSliders},
@@ -46,7 +46,17 @@ function chapterSteps(id, store) {
                 {
                     element: '[data-tour="panel"]',
                     title: '照片匣',
-                    body: '加入過的照片都放在這裡。點一下放進選取的格子，或拖到想放的格子上；縮圖上的數字是它在第幾格。',
+                    body: '加入過的照片和影片都放在這裡。點一下放進選取的格子，或拖到想放的格子上；縮圖上的數字是它在第幾格。',
+                    prepare: openTool('photos'),
+                },
+                {
+                    element: '[data-tour="panel"]',
+                    title: '照片與影片的建議',
+                    body: list([
+                        '<b>照片</b>：手機拍的都可以，會自動縮到需要的大小；單張 20 MB 以內最順',
+                        '<b>影片</b>：每支 30 秒、100 MB 以內，同時放 4 支以內最順',
+                        '<b>匯出影片</b>要即時錄製，最長的影片有幾秒就要等幾秒',
+                    ]) + (isIOS ? 'iPhone 開著低耗電模式時，影片可能載入不了或不會播放。' : ''),
                     prepare: openTool('photos'),
                 },
                 {
